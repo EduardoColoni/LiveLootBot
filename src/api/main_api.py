@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
+from src.api.routes.kick_auth_route import kick_setup_auth_routes
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.api.routes.auth_route import setup_auth_routes
 from src.api.routes.chatters_routes import setup_chatters_routes
@@ -23,4 +24,5 @@ app = FastAPI(lifespan=lifespan)
 
 # Rotas são registradas fora do lifespan porque não precisam da conexão diretamente
 app.include_router(setup_auth_routes())
+app.include_router(kick_setup_auth_routes())
 app.include_router(setup_chatters_routes())

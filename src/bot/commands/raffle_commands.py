@@ -1,12 +1,17 @@
+import base64
+
 import discord
 from discord import app_commands
-from discord.ext import commands, tasks
+from discord.app_commands import guilds
+from discord.ext import commands
+import pkce
 
 from src.bot.services.raffle_service import RaffleService
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.redis.redis_repository import RedisRepository
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.postgres.postgres_repository_raffle import PostgresRepositoryRaffle
+from src.core.config import twitch
 
 import uuid
 import urllib.parse
@@ -73,9 +78,9 @@ class Raffle(commands.Cog):
         auth_url = (
             "https://id.twitch.tv/oauth2/authorize?"
             "response_type=code&"
-            "client_id=fokrmhg7uzg90wxqn9rnl3sz0yyiou&"
+            "client_id=qamgu47p8wl6qio8fa2ef3e37q3eu2&"
             "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback&"
-            "scope=chat:edit+chat:read+moderator:read:chatters+user:write:chat&"
+            "scope=moderator%3Aread%3Achatters+chat:edit+chat:read&"
             f"state={encoded_state}"
         )
 
@@ -124,6 +129,26 @@ class Raffle(commands.Cog):
             await interaction.response.send_message("Sorteio parado!")
         else:
             await interaction.response.send_message("Nenhum sorteio em execução nesse servidor.")
+
+    @app_commands.command()
+    async def teste(self, interaction: discord.Interaction):
+
+        service = RaffleService()
+        guild_id = str(interaction.guild.id)
+        twitch_auth_url, kick_auth_url = service.auth_method(guild_id)
+        embed = discord.Embed(title="Teste", description="abc")
+        embed.set_thumbnail(url="https://i.imgur.com/ZuVOd1O.jpeg")
+
+        embed1 = discord.Embed(title="Primeira Imagem", url=f"{twitch_auth_url}", description="Descrição da primeira imagem.")
+        embed1.set_image(url="https://i.imgur.com/1z9lJdj.png")
+
+        # Embed 2
+        embed2 = discord.Embed(title="Segunda Imagem", url=f"{kick_auth_url}" , description="Descrição da segunda imagem.")
+        embed2.set_image(url="https://i.imgur.com/tBQpntA.png")
+
+        # Envia os embeds juntos na mesma mensagem
+        await interaction.response.send_message(embeds=[embed,embed1, embed2])
+
 
 # Setup para carregar o Cog
 async def setup(bot):

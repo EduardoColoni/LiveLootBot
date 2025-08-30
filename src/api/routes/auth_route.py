@@ -8,6 +8,7 @@ from src.database.postgres.postgres_repository_auth import PostgresRepositoryAut
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.redis.redis_repository import RedisRepository
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
+from starlette.responses import HTMLResponse, RedirectResponse
 
 
 class TwitchAuthController:
@@ -18,28 +19,28 @@ class TwitchAuthController:
         self.router.add_api_route("/get_refreshToken", self.refresh_token, methods=["GET"])
 
     async def twitch_callback(self, request: Request):
-        redis_repo = RedisRepository(self.redis_conn)
         conn = PostgresPool.get_conn()
+        encoded_state = request.query_params.get("state")
         try:
             repo_auth = PostgresRepositoryAuth(conn)
-
             code = request.query_params.get("code")
-            encoded_state = request.query_params.get("state")
 
             if not code or not encoded_state:
                 return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
 
             state = urllib.parse.unquote(encoded_state)
-            guild_id, csrf = state.split(":")
 
-            stored_guild = redis_repo.get(f"oauth_state:{csrf}")
-            if not stored_guild or stored_guild != guild_id:
-                return HTMLResponse("<h1>State inválido ou expirado.</h1>", status_code=403)
+            print(f"Só quero ver o que ta chegando: {state}")
 
-            redis_repo.delete(f"oauth_state:{csrf}")
+            try:
+                guild_id, uuid_state = state.split(":")
+            except ValueError:
+                return HTMLResponse("<h1>Erro: Formato de state inválido.</h1>", status_code=400)
+
+            print(f"Só um teste para ver o guild_id: {guild_id}")
 
             data = {
-                "client_id": twitch["CLIENT_ID"],
+                "client_id": "qamgu47p8wl6qio8fa2ef3e37q3eu2",
                 "client_secret": twitch["CLIENT_SECRET"],
                 "grant_type": "authorization_code",
                 "code": code,
@@ -50,8 +51,8 @@ class TwitchAuthController:
 
             if response.status_code == 200:
                 token_json = response.json()
-                streamer_name, streamer_id = self._get_user(token_json["access_token"])
-                repo_auth.insert_token(token_json, streamer_id, guild_id, streamer_name)
+                streamer_name, platform_id = self.get_user(token_json["access_token"])
+                repo_auth.new_insert_token(token_json, guild_id, streamer_name, platform_id, "twitch")
                 print("Autenticação concluída com sucesso!")
                 return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
 
@@ -100,12 +101,13 @@ class TwitchAuthController:
         finally:
             PostgresPool.release_conn(conn)
 
-    def _get_user(self, token: str):
+    def get_user(self, token: str):
         headers = {
             "Authorization": f"Bearer {token}",
             "Client-Id": twitch["CLIENT_ID"]
         }
 
+        #Eu busco as informações do usuário com o token dele que recebo da auth
         response = requests.get("https://api.twitch.tv/helix/users", headers=headers, timeout=10)
         response.raise_for_status()
 
