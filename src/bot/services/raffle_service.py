@@ -113,7 +113,7 @@ class RaffleService:
         except:
             return("Item não foram dividos por virgula")
 
-    def auth_method(self, guild_id : str):
+    def streamer_auth_method(self, guild_id : str):
         redis_conn = RedisConnectionHandle().connect()
         redis_repository = RedisRepository(redis_conn)
         csrf = str(uuid.uuid4())
@@ -134,6 +134,43 @@ class RaffleService:
             "client_id=qamgu47p8wl6qio8fa2ef3e37q3eu2&"
             "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback&"
             "scope=chat:edit+chat:read+moderator:read:chatters+user:write:chat&"
+            f"state={encoded_state}"
+        )
+
+        kick_auth_url = (
+            "https://id.kick.com/oauth/authorize?"
+            f"response_type=code&"
+            f"client_id=01K3SK4K1ZR68Q3W0QXDJ1V0TB&"
+            f"redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Fkick_callback&"
+            f"scope=user:read&"
+            f"state={encoded_state}&"
+            f"code_challenge={code_challenge}&"
+            "code_challenge_method=S256"
+        )
+
+        return twitch_auth_url, kick_auth_url
+
+    def viewer_auth_method(self, guild_id : str, discord_user_id : str, discord_user_name : str):
+        redis_conn = RedisConnectionHandle().connect()
+        redis_repository = RedisRepository(redis_conn)
+        csrf = str(uuid.uuid4())
+        state = f"{guild_id}:{discord_user_id}:{discord_user_name}:{csrf}"
+
+        # Codificar state em base64
+        encoded_state = urllib.parse.quote_plus(state)
+
+        # Gerar PKCE pair
+        code_verifier = pkce.generate_code_verifier(length=128)
+        code_challenge = pkce.get_code_challenge(code_verifier)
+
+        redis_repository.insert_ex(f"oauth_state:{csrf}", code_verifier, 300)
+
+        twitch_auth_url = (
+            "https://id.twitch.tv/oauth2/authorize?"
+            "response_type=code&"
+            "client_id=qamgu47p8wl6qio8fa2ef3e37q3eu2&"
+            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fviewer&"
+            "scope=user:read:email&"
             f"state={encoded_state}"
         )
 

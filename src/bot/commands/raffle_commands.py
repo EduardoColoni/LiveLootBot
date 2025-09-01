@@ -79,7 +79,7 @@ class Raffle(commands.Cog):
             "https://id.twitch.tv/oauth2/authorize?"
             "response_type=code&"
             "client_id=qamgu47p8wl6qio8fa2ef3e37q3eu2&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback&"
+            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
             "scope=moderator%3Aread%3Achatters+chat:edit+chat:read&"
             f"state={encoded_state}"
         )
@@ -135,7 +135,7 @@ class Raffle(commands.Cog):
 
         service = RaffleService()
         guild_id = str(interaction.guild.id)
-        twitch_auth_url, kick_auth_url = service.auth_method(guild_id)
+        twitch_auth_url, kick_auth_url = service.streamer_auth_method(guild_id)
         embed = discord.Embed(title="Teste", description="abc")
         embed.set_thumbnail(url="https://i.imgur.com/ZuVOd1O.jpeg")
 
@@ -149,6 +149,27 @@ class Raffle(commands.Cog):
         # Envia os embeds juntos na mesma mensagem
         await interaction.response.send_message(embeds=[embed,embed1, embed2])
 
+    @commands.command(name="autenticar")
+    async def autenticar(self, ctx : commands.Context):
+        service = RaffleService()
+        guild_id = str(ctx.guild.id)
+        discord_user_id = str(ctx.author.id)
+        discord_user_name = str(ctx.author.name)
+        twitch_auth_url, kick_auth_url = service.viewer_auth_method(guild_id, discord_user_id, discord_user_name)
+
+        embed = discord.Embed(title="Teste", description="abc")
+        embed.set_thumbnail(url="https://i.imgur.com/ZuVOd1O.jpeg")
+
+        embed1 = discord.Embed(title="Primeira Imagem", url=f"{twitch_auth_url}",
+                               description="Descrição da primeira imagem.")
+        embed1.set_image(url="https://i.imgur.com/1z9lJdj.png")
+
+        # Embed 2
+        embed2 = discord.Embed(title="Segunda Imagem", url=f"{kick_auth_url}",
+                               description="Descrição da segunda imagem.")
+        embed2.set_image(url="https://i.imgur.com/tBQpntA.png")
+
+        await ctx.send(f"teste: {guild_id} e meu id é: {discord_user_id}")
 
 # Setup para carregar o Cog
 async def setup(bot):
