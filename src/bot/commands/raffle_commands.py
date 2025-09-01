@@ -169,7 +169,7 @@ class Raffle(commands.Cog):
                                description="Descrição da segunda imagem.")
         embed2.set_image(url="https://i.imgur.com/tBQpntA.png")
 
-        await ctx.send(f"teste: {guild_id} e meu id é: {discord_user_id}")
+        await  ctx.send(embeds=[embed,embed1, embed2])
 
 # Setup para carregar o Cog
 async def setup(bot):

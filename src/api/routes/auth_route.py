@@ -41,23 +41,27 @@ class TwitchAuthController:
             print(f"Só um teste para ver o guild_id: {guild_id}")
 
             data = {
-                "client_id": "qamgu47p8wl6qio8fa2ef3e37q3eu2",
+                "client_id": twitch["CLIENT_ID"],
                 "client_secret": twitch["CLIENT_SECRET"],
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": twitch["REDIRECT_URI"]
+                "redirect_uri": twitch["REDIRECT_URI_STREAMER"]
             }
 
             response = requests.post(twitch["TWITCH_URL"] + "/token", data=data, timeout=10)
 
             if response.status_code == 200:
                 token_json = response.json()
-                streamer_name, platform_id = self.get_user(token_json["access_token"])
-                repo_auth.new_insert_token(token_json, guild_id, streamer_name, platform_id, "twitch")
-                print("Autenticação concluída com sucesso!")
-                return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
+                streamer_name, platform_id, display_name = self.get_user(token_json["access_token"])
+                streamer_id_auth = repo_auth.select_streamer_id(guild_id)
 
-            return HTMLResponse(f"Erro ao autenticar: {response.text}", status_code=response.status_code)
+                #Se não tiver ninguem cadastrado com o guild_id vai deixar ir, caso não vai barrar
+                if streamer_id_auth is None:
+                    repo_auth.new_insert_token(token_json, guild_id, streamer_name, platform_id, "twitch")
+                    print("Autenticação concluída com sucesso!")
+                    return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
+                else:
+                    return HTMLResponse("<h1>Apenas um streamer pode ser cadastrado por servidor ou streamer já autenticado, caso precise de ajuda entre em contato com o suporte!</h1>")
 
         except ValueError:
             return HTMLResponse("<h1>State malformado.</h1>", status_code=400)
@@ -86,20 +90,21 @@ class TwitchAuthController:
             print(f"Só um teste para ver o guild_id: {guild_id}, e tambem o user_id: {discord_user_id} e {discord_user_name}")
 
             data = {
-                "client_id": "qamgu47p8wl6qio8fa2ef3e37q3eu2",
+                "client_id": twitch["CLIENT_ID"],
                 "client_secret": twitch["CLIENT_SECRET"],
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": twitch["REDIRECT_URI"]
+                "redirect_uri": twitch["REDIRECT_URI_STREAMER"]
             }
 
             response = requests.post(twitch["TWITCH_URL"] + "/token", data=data, timeout=10)
 
             if response.status_code == 200:
                 token_json = response.json()
-                twitch_user_name, twitch_id = self.get_user(token_json["access_token"])
+                twitch_user, twitch_id, twitch_user_name = self.get_user(token_json["access_token"])
+                print(f"\nteste2 bbbbbbb {twitch_user_name} e {twitch_id}\n")
                 streamer_id = int(repo_auth.select_streamer_id(guild_id))
-                repo_auth.insert_user(streamer_id, discord_user_id, twitch_id, twitch_user_name, discord_user_name) #Vou mudar essa daqui, antes disso vou precisar fazer uma consulta para pegar o id do streamer com o guild_id
+                repo_auth.insert_user(streamer_id, discord_user_id, twitch_id, None, discord_user_name, twitch_user_name, None) #Vou mudar essa daqui, antes disso vou precisar fazer uma consulta para pegar o id do streamer com o guild_id
                 print("Autenticação concluída com sucesso!")
                 return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
 
@@ -160,7 +165,8 @@ class TwitchAuthController:
 
         data = response.json()
         user = data["data"][0]
-        return user["login"], user["id"]
+        print(f"\nteste aaaaaaaaaaa {user}\n")
+        return user["login"], user["id"], user["display_name"]
 
 
 def setup_auth_routes():

@@ -17,19 +17,32 @@ class PostgresRepositoryAuth:
             twitch_user_name: str = None,
             kick_user_name: str = None
     ):
-        query = """
+        # Coloca todos os campos em um dicionário
+        fields = {
+            "twitch_id": twitch_id,
+            "kick_id": kick_id,
+            "discord_user_name": discord_user_name,
+            "twitch_user_name": twitch_user_name,
+            "kick_user_name": kick_user_name
+        }
+
+        # Monta o SET do ON CONFLICT dinamicamente, ignorando campos que são None
+        set_clauses = ", ".join(
+            f"{field} = COALESCE(EXCLUDED.{field}, authenticated_users.{field})"
+            for field, value in fields.items()
+        )
+
+        query = f"""
         INSERT INTO authenticated_users
         (streamer_id, discord_id, twitch_id, kick_id, discord_user_name, twitch_user_name, kick_user_name, created_at, updated_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
         ON CONFLICT (streamer_id, discord_id) DO UPDATE
-        SET twitch_id = EXCLUDED.twitch_id,
-            kick_id = EXCLUDED.kick_id,
-            discord_user_name = EXCLUDED.discord_user_name,
-            twitch_user_name = EXCLUDED.twitch_user_name,
-            kick_user_name = EXCLUDED.kick_user_name,
+        SET {set_clauses},
             updated_at = NOW()
         """
+
         values = (streamer_id, discord_id, twitch_id, kick_id, discord_user_name, twitch_user_name, kick_user_name)
+
         try:
             with self.conn.cursor() as cur:
                 cur.execute(query, values)
@@ -53,10 +66,10 @@ class PostgresRepositoryAuth:
                 # 2. Tenta inserir a plataforma. Se a combinação streamer_id/platform_name já existir,
                 # atualiza o token e a data de atualização.
                 cur.execute(
-                    "INSERT INTO streamer_platform (streamer_id, guild_id, platform_id, platform_name, token) "
-                    "VALUES (%s, %s, %s, %s, %s) "
+                    "INSERT INTO streamer_platform (streamer_id, platform_id, platform_name, token) "
+                    "VALUES (%s, %s, %s, %s) "
                     "ON CONFLICT (streamer_id, platform_name) DO UPDATE SET token = EXCLUDED.token, updated_at = NOW()",
-                    (streamer_id, guild_id, platform_id, platform_name, json.dumps(token_data))
+                    (streamer_id, platform_id, platform_name, json.dumps(token_data))
                 )
             # 3. Comita a transação apenas no final.
             self.conn.commit()
@@ -85,12 +98,14 @@ class PostgresRepositoryAuth:
                 return json.loads(row[0]) if isinstance(row[0], str) else row[0]
             return None
 
-    def select_streamer_id(self, guild_id : str):
+    def select_streamer_id(self, guild_id: str):
         try:
             with self.conn.cursor() as cur:
                 cur.execute("SELECT id FROM streamer WHERE guild_id = %s", (guild_id,))
-                streamer_id = cur.fetchone()[0]
-                return int(streamer_id) if streamer_id else None
+                result = cur.fetchone()
+                if result:
+                    return int(result[0])
+                return None  # não encontrou streamer
         except Exception as e:
             self.conn.rollback()
             raise RuntimeError(f"Erro ao pegar o streamer_id: {e}")
