@@ -3,10 +3,13 @@ import asyncio
 import re
 from functools import partial
 
+from src.core.config import kick
+from src.core.config import twitch
+
 import uuid
 import urllib.parse
 import pkce
-
+import json, base64
 import requests
 from anyio import sleep
 from src.core.config import api_config
@@ -34,14 +37,16 @@ class RaffleService:
                 break
 
             if random.choice([True, False]):
-                viewer = await asyncio.to_thread(partial(self.raffle_viewer, item[2]))
-                winner_name = str(viewer["user_name"])
-                streamer_id = str(item[2])
-                item_name = str(item[3])
+                viewer, streamer_id = await asyncio.to_thread(partial(self.raffle_viewer))
+                winner_name = str(viewer['twitch']['user_name'])
+
+                item_name = str(item[2])
                 self.update_item(winner_name, item[0], item[1])
-                print(f"Sorteio feito: {item}, vencedor: {viewer}")
+                print(f"Sorteio feito: {item}, vencedor: {winner_name}")
                 url_base = api_config["URL_BASE"]
-                response = requests.post(f"{url_base}/send_message/{streamer_id}/{winner_name}/{item_name}")
+
+                self.send_message_twitch(int(streamer_id),winner_name, item_name)
+                #response = requests.post(f"{url_base}/send_message/{streamer_id}/{winner_name}/{item_name}")
 
                 # Chama o callback e passa as informações
                 await on_winner_callback(winner_name, item)
@@ -49,34 +54,39 @@ class RaffleService:
             else:
                 print("Não haverá sorteio nesse turno")
 
-    @staticmethod
-    def raffle_viewer(platform_id: int):
+    def raffle_viewer(self):
+        streamer_id = self.repo_raffle.get_streamer_id(self.guild_id)
+        raffle_user = self.repo_raffle.raffle_viewer(streamer_id)
+
+        if not raffle_user:
+            return None
+        else:
+            return raffle_user, streamer_id
+
+    def send_message_twitch(self, streamer_id: int, user_id: str, item_name: str):
         url_base = api_config["URL_BASE"]
 
-        def get_chatters():
-            resp = requests.get(f"{url_base}/get_chatters/{platform_id}")
-            if resp.status_code != 200:
-                raise RuntimeError(f"Erro ao buscar chatters: {resp.status_code} - {resp.text}")
-            try:
-                return resp.json()
-            except ValueError as e:
-                raise RuntimeError(f"Resposta não é JSON: {e}")
+        # Pega as plataformas do streamer
+        platform_raw = self.repo_raffle.select_streamer_platforms(streamer_id)
+        if not platform_raw or 'twitch' not in platform_raw:
+            raise RuntimeError(f"Streamer {streamer_id} não possui plataforma Twitch cadastrada.")
 
-        try:
-            raw_viewers = get_chatters()
-        except RuntimeError:
-            # Tentativa de refresh
-            refresh_resp = requests.get(f"{url_base}/get_refreshToken")
-            if refresh_resp.status_code != 200:
-                raise RuntimeError(f"Falha ao renovar token: {refresh_resp.status_code} - {refresh_resp.text}")
-            # Tentativa novamente após refresh
-            raw_viewers = get_chatters()
+        platform_id = platform_raw['twitch'].get('platform_id')
+        if not platform_id:
+            raise RuntimeError(f"Streamer {streamer_id} não possui platform_id válido na Twitch.")
 
-        viewers_list = raw_viewers.get("data", [])
-        if not viewers_list:
-            raise RuntimeError("Nenhum viewer retornado.")
+        params_message = {
+            "platform_id": platform_id,
+            "user_id": user_id,
+            "item_name": item_name,
+        }
 
-        return random.choice(viewers_list)
+        resp = requests.post(f"{url_base}/twitch_chatters/send_message", params=params_message)
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"Erro ao enviar a mensagem: {resp.status_code} - {resp.text}")
+
+        return resp.json()
 
     def update_item(self, winner_name: str, item_id: int, raffle_id: int):
         try:
@@ -119,8 +129,12 @@ class RaffleService:
         csrf = str(uuid.uuid4())
         state = f"{guild_id}:{csrf}"
 
-        # Codificar state em base64
-        encoded_state = urllib.parse.quote_plus(state)
+        state_dict = {
+            "guild_id": guild_id,
+            "csrf": csrf
+        }
+        state_json = json.dumps(state_dict)
+        encoded_state = urllib.parse.quote_plus(base64.b64encode(state_json.encode()).decode())
 
         # Gerar PKCE pair
         code_verifier = pkce.generate_code_verifier(length=128)
@@ -129,18 +143,36 @@ class RaffleService:
         redis_repository.insert_ex(f"oauth_state:{csrf}", code_verifier, 300)
 
         twitch_auth_url = (
-            "https://id.twitch.tv/oauth2/authorize?"
+            twitch["TWITCH_URL"] + "/authorize?"
             "response_type=code&"
-            "client_id=qamgu47p8wl6qio8fa2ef3e37q3eu2&"
+            f"client_id={twitch["CLIENT_ID"]}&"
             "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
             "scope=chat:edit+chat:read+moderator:read:chatters+user:write:chat&"
             f"state={encoded_state}"
         )
 
+        twitch_auth_url_streamer = (
+            twitch["TWITCH_URL"] + "/authorize?"
+            "response_type=code&"
+            f"client_id={twitch['CLIENT_ID']}&"
+            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
+            "scope=channel:bot+moderator:read:chatters&"
+            f"state={encoded_state}"
+        )
+
+        twitch_auth_url_bot = (
+            twitch["TWITCH_URL"] + "/authorize?"
+            "response_type=code&"
+            f"client_id={twitch['CLIENT_ID']}&"
+            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
+            "scope=chat:read+chat:edit+user:read:chat+user:write:chat+user:bot+moderator:read:chatters&"
+            f"state={encoded_state}"
+        )
+
         kick_auth_url = (
-            "https://id.kick.com/oauth/authorize?"
+            kick["KICK_URL"] + "/authorize?"
             f"response_type=code&"
-            f"client_id=01K3SK4K1ZR68Q3W0QXDJ1V0TB&"
+            f"client_id={kick["CLIENT_ID_KICK"]}&"
             f"redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Fkick_callback%2Fstreamer&"
             f"scope=user:read&"
             f"state={encoded_state}&"
@@ -148,16 +180,21 @@ class RaffleService:
             "code_challenge_method=S256"
         )
 
-        return twitch_auth_url, kick_auth_url
+        return twitch_auth_url_streamer, kick_auth_url
 
     def viewer_auth_method(self, guild_id : str, discord_user_id : str, discord_user_name : str):
         redis_conn = RedisConnectionHandle().connect()
         redis_repository = RedisRepository(redis_conn)
         csrf = str(uuid.uuid4())
-        state = f"{guild_id}:{discord_user_id}:{discord_user_name}:{csrf}"
 
-        # Codificar state em base64
-        encoded_state = urllib.parse.quote_plus(state)
+        state_dict = {
+            "guild_id": guild_id,
+            "discord_user_id": discord_user_id,
+            "discord_user_name": discord_user_name,
+            "csrf": csrf
+        }
+        state_json = json.dumps(state_dict)
+        encoded_state = urllib.parse.quote_plus(base64.b64encode(state_json.encode()).decode())
 
         # Gerar PKCE pair
         code_verifier = pkce.generate_code_verifier(length=128)
@@ -166,18 +203,17 @@ class RaffleService:
         redis_repository.insert_ex(f"oauth_state:{csrf}", code_verifier, 300)
 
         twitch_auth_url = (
-            "https://id.twitch.tv/oauth2/authorize?"
+            twitch["TWITCH_URL"] + "/authorize?"
             "response_type=code&"
-            "client_id=qamgu47p8wl6qio8fa2ef3e37q3eu2&"
+            f"client_id={twitch["CLIENT_ID"]}&"
             "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fviewer&"
             "scope=user:read:email&"
             f"state={encoded_state}"
         )
-
         kick_auth_url = (
-            "https://id.kick.com/oauth/authorize?"
+            kick["KICK_URL"] + "/authorize?"
             f"response_type=code&"
-            f"client_id=01K3SK4K1ZR68Q3W0QXDJ1V0TB&"
+            f"client_id={kick["CLIENT_ID_KICK"]}&"
             f"redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Fkick_callback%2Fviewer&"
             f"scope=user:read&"
             f"state={encoded_state}&"

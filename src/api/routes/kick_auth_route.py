@@ -3,6 +3,7 @@ from fastapi import Request, APIRouter
 from fastapi.responses import HTMLResponse
 import requests
 import urllib.parse
+import json, base64
 
 from src.core.config import kick
 from src.database.postgres.postgres_repository_auth import PostgresRepositoryAuth
@@ -29,23 +30,20 @@ class KickAuthController:
             if not code or not encoded_state:
                 return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
 
-            # Decodifica o state e extrai apenas o csrf
-            state = urllib.parse.unquote(encoded_state)
-            try:
-                # Pega apenas o segundo valor após o ":"
-                guild_id, csrf = state.split(":")
-            except ValueError:
-                return HTMLResponse("<h1>Erro: Formato de state inválido.</h1>", status_code=400)
+            state_json = base64.b64decode(urllib.parse.unquote(encoded_state)).decode()
+            state_dict = json.loads(state_json)
+            guild_id = state_dict["guild_id"]
+            uuid_state = state_dict["csrf"]
 
             # Agora, usa o csrf para buscar o code_verifier no Redis
-            code_verifier = redis_repo.get(f"oauth_state:{csrf}")
+            code_verifier = redis_repo.get(f"oauth_state:{uuid_state}")
 
             print(f"teste: {guild_id}")
 
             if not code_verifier:
                 return HTMLResponse("<h1>State inválido ou expirado.</h1>", status_code=403)
 
-            redis_repo.delete(f"oauth_state:{csrf}")
+            redis_repo.delete(f"oauth_state:{uuid_state}")
 
             data = {
                 "client_id": kick["CLIENT_ID_KICK"],
@@ -63,7 +61,7 @@ class KickAuthController:
                 streamer_name, platform_id = self.kick_get_user(token_json["access_token"])
                 repo_auth.new_insert_token(token_json, guild_id, streamer_name, platform_id, "kick")
                 print(response.json())
-                return HTMLResponse("Deu certo")
+                return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
 
             return HTMLResponse(f"Erro ao autenticar: {response.text}", status_code=response.status_code)
         except ValueError:
@@ -84,23 +82,22 @@ class KickAuthController:
             if not code or not encoded_state:
                 return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
 
-            # Decodifica o state e extrai apenas o csrf
-            state = urllib.parse.unquote(encoded_state)
-            try:
-                # Pega apenas o segundo valor após o ":"
-                guild_id, discord_user_id, discord_user_name, csrf = state.split(":")
-            except ValueError:
-                return HTMLResponse("<h1>Erro: Formato de state inválido.</h1>", status_code=400)
+            state_json = base64.b64decode(urllib.parse.unquote(encoded_state)).decode()
+            state_dict = json.loads(state_json)
+            guild_id = state_dict["guild_id"]
+            discord_user_id = state_dict["discord_user_id"]
+            discord_user_name = state_dict["discord_user_name"]
+            uuid_state = state_dict["csrf"]
 
             # Agora, usa o csrf para buscar o code_verifier no Redis
-            code_verifier = redis_repo.get(f"oauth_state:{csrf}")
+            code_verifier = redis_repo.get(f"oauth_state:{uuid_state}")
 
             print(f"Só um teste para ver o guild_id: {guild_id}, e tambem o user_id: {discord_user_id} e {discord_user_name}")
 
             if not code_verifier:
                 return HTMLResponse("<h1>State inválido ou expirado.</h1>", status_code=403)
 
-            redis_repo.delete(f"oauth_state:{csrf}")
+            redis_repo.delete(f"oauth_state:{uuid_state}")
 
             data = {
                 "client_id": kick["CLIENT_ID_KICK"],

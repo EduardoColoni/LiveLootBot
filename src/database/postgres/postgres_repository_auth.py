@@ -78,20 +78,29 @@ class PostgresRepositoryAuth:
             self.conn.rollback()
             raise RuntimeError(f"Failed to insert/update token: {e}")
 
-    def refresh_token(self, token_data: dict) -> None:
+    def refresh_token(self, token_data: dict, platform_id : str) -> None:
         try:
             #Insere token em formato JSON no banco de dados
             with self.conn.cursor() as cur:
-                cur.execute("UPDATE streamer SET token = %s WHERE id = (SELECT id FROM streamer ORDER BY id DESC LIMIT 1)", (json.dumps(token_data),))
+                cur.execute(
+                    """UPDATE streamer_platform 
+                    SET token = %s 
+                    WHERE platform_id = %s""",
+                    (json.dumps(token_data), platform_id)
+                )
             self.conn.commit()
 
         except Exception as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to refresh token: {e}")
 
-    def select_token_by_streamer(self, streamer_id: str):
+    def select_token_by_platform(self, platform_id: str):
         with self.conn.cursor() as cur:
-            cur.execute("SELECT token FROM streamer WHERE streamer_id = %s", (streamer_id,))
+            cur.execute("""
+                SELECT token
+                FROM streamer_platform
+                WHERE platform_id = %s
+            """, (platform_id,))
             row = cur.fetchone()
             if row:
                 import json
@@ -109,3 +118,77 @@ class PostgresRepositoryAuth:
         except Exception as e:
             self.conn.rollback()
             raise RuntimeError(f"Erro ao pegar o streamer_id: {e}")
+
+    def select_app_access_token(self):
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT token_data FROM app_access_token ORDER BY expires_at DESC LIMIT 1"
+                )
+                row = cur.fetchone()
+                if row:
+                    import json
+                    # token está salvo como JSONB ou TEXT, garante que sempre retorna dict
+                    return json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                return None  # não encontrou token
+        except Exception as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Erro ao pegar o App Access Token: {e}")
+
+    def insert_eventsub_subscription(
+                self,
+                streamer_id: int,
+                platform_id: str,
+                subscription_id: str,
+                status: str,
+                type_: str,
+                transport_callback: str,
+                webhook_secret: str,
+                expires_at: str  # ISO datetime ou datetime object
+    ):
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO twitch_eventsub_subscription
+                    (streamer_id, platform_id, subscription_id, status, type, transport_callback, webhook_secret, expires_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (subscription_id)
+                    DO UPDATE SET
+                    status = EXCLUDED.status,
+                    type = EXCLUDED.type,
+                    transport_callback = EXCLUDED.transport_callback,
+                    webhook_secret = EXCLUDED.webhook_secret,
+                    expires_at = EXCLUDED.expires_at
+                    RETURNING id
+                    """,(streamer_id,platform_id,subscription_id,status,type_,transport_callback,webhook_secret,expires_at))
+                subscription_id_db = cur.fetchone()[0]
+                self.conn.commit()
+                return subscription_id_db
+
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Failed to insert/update EventSub subscription: {e}")
+
+    def insert_app_access_token(self, token_data: dict):
+        try:
+            with self.conn.cursor() as cur:
+                # Calcula a data de expiração com base no 'expires_in' retornado pela Twitch
+                expires_at = f"NOW() + interval '{token_data.get('expires_in', 3600)} seconds'"
+
+                # Insere ou atualiza
+                cur.execute(
+                    f"""
+                    INSERT INTO app_access_token (token_data, expires_at)
+                    VALUES (%s, {expires_at})
+                    ON CONFLICT (id)
+                    DO UPDATE SET token_data = EXCLUDED.token_data,
+                                  expires_at = EXCLUDED.expires_at,
+                                  created_at = NOW()
+                    """,
+                    (json.dumps(token_data),)
+                )
+            self.conn.commit()
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Failed to insert/update App Access Token: {e}")

@@ -108,9 +108,9 @@ class Raffle(commands.Cog):
                     if not winner_name:
                         await interaction.followup.send("Itens para sorteio vazio ou usuário parou a função")
                         return
-                    await interaction.followup.send(f"🎉 O vencedor foi **{winner_name}** com o item **{item[3]}!**")
+                    await interaction.followup.send(f"🎉 O vencedor foi **{winner_name}** com o item **{item[2]}!**")
 
-                await service.raffle_loop(10, notify_winner)
+                await service.raffle_loop(2, notify_winner)
 
             finally:
                 PostgresPool.release_conn(conn)
@@ -148,6 +148,34 @@ class Raffle(commands.Cog):
 
         # Envia os embeds juntos na mesma mensagem
         await interaction.response.send_message(embeds=[embed,embed1, embed2])
+
+    @app_commands.command()
+    async def sortear_usuario(self, interaction: discord.Interaction):
+        conn = PostgresPool.get_conn()
+        guild_id = str(interaction.guild.id)
+        service = RaffleService(conn, guild_id)
+        user_raffle = service.raffle_viewer()
+
+        if not user_raffle:
+            await interaction.response.send_message("Nenhum usuário para sortear")
+        else:
+            await interaction.response.send_message(f"Usuario sorteado: {user_raffle}")
+
+        PostgresPool.release_conn(conn)
+
+    @app_commands.command()
+    async def teste_mandar_mensagem(self, interaction: discord.Interaction):
+        conn = PostgresPool.get_conn()
+        guild_id = str(interaction.guild.id)
+        service = RaffleService(conn, guild_id)
+        user_raffle = service.teste_mandar_mensagem()
+
+        if not user_raffle:
+            await interaction.response.send_message("Nenhum usuário para sortear")
+        else:
+            await interaction.response.send_message(f"Usuario sorteado: {user_raffle}")
+
+        PostgresPool.release_conn(conn)
 
     @commands.command(name="autenticar")
     async def autenticar(self, ctx : commands.Context):
