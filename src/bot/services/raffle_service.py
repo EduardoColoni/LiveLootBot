@@ -231,10 +231,10 @@ class RaffleService:
 
         kick_auth_url = (
             kick["KICK_URL"] + "/authorize?"
-            f"response_type=code&"
+            f"response_type=code&" 
             f"client_id={kick["CLIENT_ID_KICK"]}&"
             f"redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Fkick_callback%2Fstreamer&"
-            f"scope=user:read%20chat:write&"
+            f"scope=user:read%20chat:write%20events:subscribe&"
             f"state={encoded_state}&"
             f"code_challenge={code_challenge}&"
             "code_challenge_method=S256"

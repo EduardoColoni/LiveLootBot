@@ -1,22 +1,15 @@
-from aiohttp import streamer
 from fastapi import Request, APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 import requests
 import urllib.parse
 import json, base64
 
+from src.api.services.auth_service import AuthService
 from src.core.config import kick
 from src.database.postgres.postgres_repository_auth import PostgresRepositoryAuth
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.redis.redis_repository import RedisRepository
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
-
-
-KICK_API_URL = "https://api.kick.com/api/v1"
-KICK_EVENT_SUBSCRIPTION_URL = "https://api.kick.com/public/v1/events/subscriptions"
-KICK_PUBLIC_KEY_URL = "https://api.kick.com/public/v1/public-key"
-CLIENT_ID = "seu_client_id_kick"
-CLIENT_SECRET = "seu_client_secret_kick"
 
 class KickAuthController:
     def __init__(self):
@@ -24,7 +17,7 @@ class KickAuthController:
         self.router = APIRouter()
         self.router.add_api_route("/kick_callback/streamer", self.kick_callback_streamer, methods=["GET"])
         self.router.add_api_route("/kick_callback/viewer", self.kick_callback_viewer, methods=["GET"])
-        self.router.add_api_route("/kick_callback/refreshToken", self.kick_refresh_token, methods=["GET"])
+        self.router.add_api_route("/kick_callback/event_sub_signature", self.kick_event_sub_signature, methods=["GET"])
 
     async def kick_callback_streamer(self, request: Request):
         conn = PostgresPool.get_conn()
@@ -133,10 +126,8 @@ class KickAuthController:
         finally:
             PostgresPool.release_conn(conn)
 
-    async def kick_refresh_token(self, request: Request):
-        print("a")
-
-    def kick_get_user(self, token: str):
+    @staticmethod
+    def kick_get_user(token: str):
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "*/*"
@@ -153,91 +144,79 @@ class KickAuthController:
         print(f"\nteste aaaaaaaaaaa {user}\n")
         return user["name"], user["user_id"]
 
-#-----------------------------------------------------------------------------------------------------------------------
-
-    async def kick_event_sub_signature(self, platform_id: str):
-        """
-        Cria uma nova inscrição para webhooks na Kick.
-        """
-
+    @staticmethod
+    async def kick_event_sub_signature(platform_id: str):
         conn = PostgresPool.get_conn()
         repo_auth = PostgresRepositoryAuth(conn)
+        service = AuthService(conn, platform_id)
 
-        try:
+        def load_headers():
+            print(f"Buscando token para a plataforma: {platform_id}")
+            token_data = repo_auth.select_token_by_platform(platform_id)
+            print(f"Dados brutos do token: {token_data}")
+            if not token_data or "access_token" not in token_data:
+                raise RuntimeError("Token de acesso não encontrado")
 
-            params_refresh = {"platform_id": platform_id}
-
-            def load_headers():
-                token_data = repo_auth.select_token_by_platform(platform_id)
-                if not token_data or "access_token" not in token_data:
-                    raise RuntimeError("Token de acesso não encontrado")
-                return {
-                "Authorization": f"Bearer {token_data['access_token']}",
+            access_token = token_data['access_token']
+            print(f"Token de acesso a ser usado: {access_token}")
+            return {
+                "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
-                }
+            }
 
+        def send_subscription_request(headers):
             body = {
-                "broadcaster_user_id": platform_id,
+                "broadcaster_user_id": int(platform_id),
                 "events": [
                     {
                         "name": "chat.message.sent",
                         "version": 1
                     }
                 ],
-                "method": "webhook",
-                "callback": "https://remarkably-knowing-serval.ngrok-free.app/kick/eventsub"
+                "method": "webhook"
             }
+            response = requests.post(
+                "https://api.kick.com/public/v1/events/subscriptions",
+                headers=headers,
+                json=body
+            )
+            print(f"\nteste: {response}\n")
+            print(f"\nteste: {response.json()}\n")
 
-            def do_send_message(headers):
-                response = requests.post(
-                    KICK_EVENT_SUBSCRIPTION_URL,
-                    headers=headers,
-                    json=body
-                )
-                print(response.json())
+            response.raise_for_status()
+            return response.json()
 
-                if response.status_code == 401:
-                    raise RuntimeError("Token de acesso não encontrado ou inválido")
+        try:
+            headers = load_headers()
+            subscription_data = send_subscription_request(headers)
 
-                elif response.status_code != 200:
-                    raise RuntimeError(f"Erro ao fazer a inscrição: {response.status_code} - {response.text}")
-
-                print("Mensagem enviada com sucesso")
-                return JSONResponse(content=response.json())
-
-            try:
-                headers = load_headers()
-                return do_send_message(headers)
-            except RuntimeError as e:
-                if "Token de acesso não encontrado" in str(e):
-                    print(f"[INFO] Token inválido. Tentando refresh para platform_id={platform_id}")
-                    refresh_resp = requests.get(f"{url_base}/twitch_callback/get_refreshToken", params=params_refresh)
-                    if refresh_resp.status_code != 200:
-                        raise RuntimeError(f"Falha ao renovar token: {refresh_resp.status_code} - {refresh_resp.text}")
-
-                    #recarrega token atualizado e tenta novamente
-                    headers = load_headers()
-                    print("\ntoken atualizado!")
-                    return do_send_message(headers)
-                else:
-                    raise
-            sub = response.json()["data"][0]
-
-            # AQUI: Lógica para salvar os detalhes da inscrição no banco de dados.
-            # O ID da inscrição e o status são importantes para o gerenciamento.
-            # Campos para salvar:
-            # - subscription_id: sub["subscription_id"]
-            # - broadcaster_id: broadcaster_id
-            # - event_type: sub["name"]
-            # - status: 'enabled' (ou outro status retornado)
-
-            print(f"[INFO] Inscrição em evento da Kick criada com sucesso: {sub['subscription_id']}")
-            print(f"\nSó quero saber o que chegou; {response}")
-            return {"status": "ok", "subscription_id": sub["subscription_id"]}
+            print(f"[INFO] Inscrição criada com sucesso: {subscription_data['data'][0]['subscription_id']}")
+            return {"status": "ok", "subscription_id": subscription_data['data'][0]['subscription_id']}
 
         except requests.exceptions.HTTPError as e:
-            print(f"Erro ao criar inscrição: {e.response.status_code} - {e.response.text}")
-            raise HTTPException(status_code=500, detail=f"Erro ao criar inscrição na Kick: {e.response.text}")
+            if e.response.status_code == 401:
+                print(f"Erro 401. Token inválido. Tentando refresh para platform_id={platform_id}")
+
+                # Chama a função de refresh diretamente e lida com o retorno
+                refresh_resp = service.kick_refresh_token()
+                print(f"Resposta da tentativa de refresh: {refresh_resp.get('status')} - {refresh_resp.get('message')}")
+
+                if refresh_resp.get("status") != "ok":
+                    raise HTTPException(status_code=500,
+                                        detail=f"Falha ao renovar token: {refresh_resp.get('message')}")
+
+                try:
+                    print("Iniciando segunda tentativa de inscrição com o novo token...")
+                    headers = load_headers()
+                    subscription_data = send_subscription_request(headers)
+
+                    print("Token atualizado e inscrição feita com sucesso!")
+                    return {"status": "ok", "subscription_id": subscription_data['data'][0]['subscription_id']}
+
+                except requests.exceptions.HTTPError as e_retry:
+                    raise HTTPException(status_code=500, detail=f"Erro na segunda tentativa: {e_retry.response.text}")
+            else:
+                raise HTTPException(status_code=500, detail=f"Erro ao criar inscrição: {e.response.text}")
         finally:
             PostgresPool.release_conn(conn)
 

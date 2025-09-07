@@ -1,77 +1,94 @@
-from fastapi import APIRouter, Request, Header
-from fastapi.responses import PlainTextResponse
-import hmac
-import hashlib
+import rsa
+import base64
 import json
-
+from fastapi import APIRouter, Request, Header, HTTPException
+from fastapi.responses import JSONResponse
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.redis.redis_repository import RedisRepository
 
 
 class KickEventSubController:
+    """
+    Controlador para receber e processar webhooks da Kick.
+    """
+    KICK_PUBLIC_KEY = """
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq/+l1WnlRrGSolDMA+A8
+6rAhMbQGmQ2SapVcGM3zq8ANXjnhDWocMqfWcTd95btDydITa10kDvHzw9WQOqp2
+MZI7ZyrfzJuz5nhTPCiJwTwnEtWft7nV14BYRDHvlfqPUaZ+1KR4OCaO/wWIk/rQ
+L/TjY0M70gse8rlBkbo2a8rKhu69RQTRsoaf4DVhDPEeSeI5jVrRDGAMGL3cGuyY
+6CLKGdjVEM78g3JfYOvDU/RvfqD7L89TZ3iN94jrmWdGz34JNlEI5hqK8dd7C5EF
+BEbZ5jgB8s8ReQV8H+MkuffjdAj3ajDDX3DOJMIut1lBrUVD1AaSrGCKHooWoL2e
+twIDAQAB
+-----END PUBLIC KEY-----
+"""
+
     def __init__(self):
         self.redis_conn = RedisConnectionHandle().connect()
         self.router = APIRouter()
-        # Adiciona a rota apontando para o metodo de instância
-        self.router.add_api_route(
-            "/kick/eventsub",
-            self.kick_eventsub,
-            methods=["POST"]
-        )
+        self.router.add_api_route("/kick/eventsub", self.kick_eventsub, methods=["POST"])
+
+        try:
+            self.public_key = rsa.PublicKey.load_pkcs1_openssl_pem(self.KICK_PUBLIC_KEY.encode('utf-8'))
+        except Exception as e:
+            raise RuntimeError(f"Erro ao carregar a chave pública da Kick: {e}")
 
     async def kick_eventsub(
-        self,
-        request: Request,
-        twitch_message_id: str = Header(..., alias="Twitch-Eventsub-Message-Id"),
-        twitch_timestamp: str = Header(..., alias="Twitch-Eventsub-Message-Timestamp"),
-        twitch_signature: str = Header(..., alias="Twitch-Eventsub-Message-Signature"),
-        twitch_message_type: str = Header(..., alias="Twitch-Eventsub-Message-Type"),
+            self,
+            request: Request,
+            kick_message_id: str = Header(..., alias="Kick-Event-Message-Id"),
+            kick_timestamp: str = Header(..., alias="Kick-Event-Message-Timestamp"),
+            kick_signature: str = Header(..., alias="Kick-Event-Signature"),
+            kick_message_type: str = Header(..., alias="Kick-Event-Type"),
+            kick_subscription_id: str = Header(..., alias="Kick-Event-Subscription-Id")
     ):
         redis_repository = RedisRepository(self.redis_conn)
-        WEBHOOK_SECRET = "umSegredoForteAqui123"  # ideal: colocar em .env
-
-        # Lê o corpo da requisição
         body = await request.body()
 
-        # 🔒 Validação HMAC
-        computed_hmac = hmac.new(
-            WEBHOOK_SECRET.encode(),
-            msg=(twitch_message_id + twitch_timestamp + body.decode()).encode(),
-            digestmod=hashlib.sha256
-        ).hexdigest()
+        # 🔒 Validação da assinatura com RSA
+        try:
+            signature_to_verify = f"{kick_message_id}.{kick_timestamp}.{body.decode('utf-8')}"
+            decoded_signature = base64.b64decode(kick_signature)
 
-        expected_signature = f"sha256={computed_hmac}"
-        if not hmac.compare_digest(expected_signature, twitch_signature):
-            return {"error": "Invalid signature"}
+            rsa.verify(signature_to_verify.encode('utf-8'), decoded_signature, self.public_key)
 
-        # 🔄 Caso seja o challenge (verificação inicial)
-        if twitch_message_type == "webhook_callback_verification":
-            data = await request.json()
-            # retorna apenas o texto do challenge, conforme exigido pelo Twitch
-            return PlainTextResponse(data["challenge"])
+        except (rsa.VerificationError, base64.binascii.Error) as e:
+            print(f"Erro de verificação da assinatura: {e}")
+            raise HTTPException(status_code=403, detail="Invalid signature")
 
-        # 📩 Evento normal (mensagem de chat)
-        if twitch_message_type == "notification":
-            data = await request.json()
-            event = data["event"]
+        # Diferentemente da Twitch, a Kick não usa um "challenge".
+        # A validação da assinatura é suficiente para confirmar a autenticidade.
 
-            broadcaster_id = event['broadcaster_user_id']
-            chatter_user_name = event['chatter_user_name']
-            chatter_message = event['message']['text']
-            redis_key = f"{broadcaster_id};{chatter_user_name}"
-            print(f"Esse é a key do redis ->>>>: {redis_key}")
+        # 📩 Processamento do evento
+        # Conforme a doc, o tipo de evento é "Kick-Event-Type"
+        # O corpo do evento é o JSON
+        data = json.loads(body.decode("utf-8"))
 
-            if chatter_message == "!claim":
-                # Aqui você pode salvar no Redis ou processar conforme seu fluxo
-                redis_repository.insert_ex(redis_key, chatter_user_name, 17)
-                print(f"[Chat] {event['chatter_user_name']}: {event['message']['text']}, {event['broadcaster_user_id']}\n")
-                print(f"[Chat] {event}")
+        print(f"Webhook recebido da Kick, tipo: {kick_message_type}")
 
-                print(f"\n teste: {redis_repository.get(redis_key)}")
-                # Exemplo de salvar no Redis
-                #self.redis_conn.set(f"twitch:chat:{event['id']}", json.dumps(event))
+        if kick_message_type == "chat.message.sent":
+            event = data
+            broadcaster_id = event["broadcaster"]["user_id"]
+            sender_username = event["sender"]["username"]
+            message_content = event["content"]
 
-        return {"status": "ok"}
+            print(f"[Chat Kick] {sender_username}: {message_content} no canal de {event['broadcaster']['username']}")
+
+            # Exemplo de lógica similar ao seu código da Twitch
+            redis_key = f"kick:{broadcaster_id}:{sender_username}"
+            if message_content == "!claim":
+                # AQUI: Lógica de processamento e salvamento no Redis
+                redis_repository.insert_ex(redis_key, sender_username, 17)
+                print(f"Comando !claim recebido. Usuário: {sender_username}")
+
+        elif kick_message_type == "channel.followed":
+            follower_username = data["follower"]["username"]
+            print(f"[Follow Kick] Novo seguidor: {follower_username}")
+
+        # Adicionar outros tipos de eventos conforme a necessidade
+        # ...
+
+        return JSONResponse(content={"status": "ok"})
 
 
 def kick_event_sub_routes():

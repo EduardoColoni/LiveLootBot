@@ -6,8 +6,8 @@ from src.api.routes.kick_chatters_routes import kick_setup_chatters_routes
 from src.api.services.kick_event_sub import kick_event_sub_routes
 from src.api.services.twitch_event_sub import twitch_event_sub_routes
 from src.database.postgres.connection.postgres_connection import PostgresPool
-from src.api.routes.auth_route import setup_auth_routes
-from src.api.routes.chatters_routes import setup_chatters_routes
+from src.api.routes.twitch_auth_route import setup_auth_routes
+from src.api.routes.twitch_chatters_routes import setup_chatters_routes
 
 
 @asynccontextmanager

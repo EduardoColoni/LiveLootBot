@@ -9,8 +9,8 @@ from src.database.postgres.postgres_repository_auth import PostgresRepositoryAut
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.redis.redis_repository import RedisRepository
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
-from starlette.responses import HTMLResponse, RedirectResponse
-from datetime import datetime, timezone
+from starlette.responses import HTMLResponse
+from datetime import datetime
 
 
 class TwitchAuthController:
@@ -19,7 +19,6 @@ class TwitchAuthController:
         self.router = APIRouter()
         self.router.add_api_route("/twitch_callback/streamer", self.twitch_callback_streamer, methods=["GET"])
         self.router.add_api_route("/twitch_callback/viewer", self.twitch_callback_viewer, methods=["GET"])
-        self.router.add_api_route("/twitch_callback/get_refreshToken", self.refresh_token, methods=["GET"])
         self.router.add_api_route("/twitch_callback/twitch_app_access_token", self.twitch_app_access_token, methods=["GET"])
         self.router.add_api_route("/twitch_callback/event_sub_signature", self.event_sub_signature, methods=["GET"])
 
@@ -80,13 +79,11 @@ class TwitchAuthController:
             if not code or not encoded_state:
                 return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
 
-            # state = urllib.parse.unquote(encoded_state)
             state_json = base64.b64decode(urllib.parse.unquote(encoded_state)).decode()
             state_dict = json.loads(state_json)
             guild_id = state_dict["guild_id"]
             discord_user_id = state_dict["discord_user_id"]
             discord_user_name = state_dict["discord_user_name"]
-            uuid_state = state_dict["csrf"]
 
             print(f"Só um teste para ver o guild_id: {guild_id}, e tambem o user_id: {discord_user_id} e {discord_user_name}")
 
@@ -124,43 +121,8 @@ class TwitchAuthController:
         finally:
             PostgresPool.release_conn(conn)
 
-    async def refresh_token(self, request: Request, platform_id : str):
-        conn = PostgresPool.get_conn()
-        try:
-            repo_auth = PostgresRepositoryAuth(conn)
-
-            token_data = repo_auth.select_token_by_platform(platform_id)
-            if not token_data:
-                return HTMLResponse("<h1>Token não encontrado.</h1>", status_code=401)
-
-            refresh_token = token_data.get("refresh_token")
-            if not refresh_token:
-                return HTMLResponse("<h1>Refresh token ausente.</h1>", status_code=400)
-
-            data = {
-                "client_id": twitch["CLIENT_ID"],
-                "client_secret": twitch["CLIENT_SECRET"],
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-                "redirect_uri": twitch["REDIRECT_URI_STREAMER"]
-            }
-
-            response = requests.post(f"{twitch['TWITCH_URL']}/token", data=data, timeout=10)
-
-            if response.status_code == 200:
-                token_json = response.json()
-                repo_auth.refresh_token(token_json, platform_id)
-                print("Token atualizado com sucesso!")
-                return HTMLResponse("<h1>Token atualizado com sucesso!</h1>")
-
-            return HTMLResponse(f"Erro ao atualizar token: {response.text}", status_code=response.status_code)
-
-        except requests.exceptions.RequestException as e:
-            return HTMLResponse(f"<h1>Erro na requisição: {str(e)}</h1>", status_code=500)
-        finally:
-            PostgresPool.release_conn(conn)
-
-    def get_user(self, token: str):
+    @staticmethod
+    def get_user(token: str):
         headers = {
             "Authorization": f"Bearer {token}",
             "Client-Id": twitch["CLIENT_ID"]
@@ -175,10 +137,8 @@ class TwitchAuthController:
         print(f"\nteste aaaaaaaaaaa {user}\n")
         return user["login"], user["id"], user["display_name"]
 
-    import requests
-    from fastapi import Request, HTTPException
-
-    async def twitch_app_access_token(self, request: Request):
+    @staticmethod
+    async def twitch_app_access_token():
         conn = PostgresPool.get_conn()
         repo_auth = PostgresRepositoryAuth(conn)
 
@@ -223,7 +183,8 @@ class TwitchAuthController:
         finally:
             PostgresPool.release_conn(conn)
 
-    async def event_sub_signature(self):
+    @staticmethod
+    async def event_sub_signature():
         conn = PostgresPool.get_conn()
         try:
             repo_auth = PostgresRepositoryAuth(conn)
