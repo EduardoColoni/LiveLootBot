@@ -69,7 +69,7 @@ class TwitchChattersController:
         finally:
             PostgresPool.release_conn(conn)
 
-    async def send_message(self, request: Request, platform_id: str, user_id: str, item_name: str):
+    async def send_message(self, request: Request, platform_id: str, user_id: str, item_name: str, message_control : str):
         conn = PostgresPool.get_conn()
         url_base = api_config["URL_BASE"]
 
@@ -88,12 +88,34 @@ class TwitchChattersController:
                     "Client-Id": twitch["CLIENT_ID"]
                 }
 
-            json_body = {
-                "broadcaster_id": platform_id,  # streamer alvo
-                "moderator_id": bot_platform_id,  # bot
-                "sender_id": bot_platform_id,  # bot
-                "message": f"Parabéns @{user_id} você foi sorteado! e ganhou o item: {item_name}"
-            }
+            if message_control == "claim":
+                json_body = {
+                    "broadcaster_id": platform_id,
+                    "moderator_id": bot_platform_id,
+                    "sender_id": bot_platform_id,
+                    "message": f"🎯 @{user_id}, você foi sorteado para o item: {item_name}! Digite !claim em até 1 minuto para garantir seu prêmio! 🕹️"
+                }
+            elif message_control == "resend_claim":
+                json_body = {
+                    "broadcaster_id": platform_id,
+                    "moderator_id": bot_platform_id,
+                    "sender_id": bot_platform_id,
+                    "message": f"⚠️ @{user_id} não deu !claim! O item {item_name} será sorteado novamente 🔄🎮"
+                }
+            elif message_control == "winner":
+                json_body = {
+                    "broadcaster_id": platform_id,
+                    "moderator_id": bot_platform_id,
+                    "sender_id": bot_platform_id,
+                    "message": f"🏆 @{user_id} confirmou o !claim! Você ganhou o item: {item_name} 🎉✨"
+                }
+            elif message_control == "not-claim":
+                json_body = {
+                    "broadcaster_id": platform_id,
+                    "moderator_id": bot_platform_id,
+                    "sender_id": bot_platform_id,
+                    "message": f"❌ Ninguém deu !claim no item {item_name} após 3 tentativas! Um novo item será sorteado 🎲🔥"
+                }
 
             def do_send_message(headers):
                 response = requests.post(
@@ -123,6 +145,7 @@ class TwitchChattersController:
 
                     #recarrega token atualizado e tenta novamente
                     headers = load_headers()
+                    print("\ntoken atualizado!")
                     return do_send_message(headers)
                 else:
                     raise

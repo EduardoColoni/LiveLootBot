@@ -36,10 +36,10 @@ def teste():
                 json=json_body
             )
 
-    # params = {
-    #     "platform_id" : "138603338"
-    # }
-    #
+    params = {
+        "platform_id" : "138603338"
+    }
+
     # response = requests.get(f"{url_base}/twitch_callback/get_refreshToken", params=params)
 
 

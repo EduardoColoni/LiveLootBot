@@ -119,6 +119,18 @@ class PostgresRepositoryAuth:
             self.conn.rollback()
             raise RuntimeError(f"Erro ao pegar o streamer_id: {e}")
 
+    def select_streamer_id_by_platform_id(self, platform_id: str):
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT streamer_id FROM streamer_platform WHERE platform_id = %s", (platform_id,))
+                result = cur.fetchone()
+                if result:
+                    return int(result[0])
+                return None  # não encontrou streamer
+        except Exception as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Erro ao pegar o streamer_id: {e}")
+
     def select_app_access_token(self):
         try:
             with self.conn.cursor() as cur:

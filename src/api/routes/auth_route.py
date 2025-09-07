@@ -235,7 +235,8 @@ class TwitchAuthController:
                 raise RuntimeError("App Access Token não encontrado no banco.")
 
             # IDs do broadcaster e do bot
-            broadcaster_user_id = "102089057"
+            platform_id = "102089057"
+
             user_id_bot = "1355737213"
 
             headers = {
@@ -248,7 +249,7 @@ class TwitchAuthController:
                 "type": "channel.chat.message",
                 "version": "1",
                 "condition": {
-                    "broadcaster_user_id": broadcaster_user_id,
+                    "broadcaster_user_id": platform_id,
                     "user_id": user_id_bot
                 },
                 "transport": {
@@ -283,11 +284,11 @@ class TwitchAuthController:
 
             # Expira_at: nem sempre existe, usar created_at se necessário
             expires_at = sub.get("expires_at", sub["created_at"])
-
+            streamer_id = repo_auth.select_streamer_id_by_platform_id(platform_id)
             # Insere no banco
             repo_auth.insert_eventsub_subscription(
-                streamer_id=int("69"),
-                platform_id=str(broadcaster_user_id),
+                streamer_id=int(streamer_id),
+                platform_id=str(platform_id),
                 subscription_id=sub["id"],
                 status=status_db,
                 type_=sub["type"],

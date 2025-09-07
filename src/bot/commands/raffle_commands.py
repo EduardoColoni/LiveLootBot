@@ -110,7 +110,7 @@ class Raffle(commands.Cog):
                         return
                     await interaction.followup.send(f"🎉 O vencedor foi **{winner_name}** com o item **{item[2]}!**")
 
-                await service.raffle_loop(2, notify_winner)
+                await service.raffle_loop(10, notify_winner)
 
             finally:
                 PostgresPool.release_conn(conn)

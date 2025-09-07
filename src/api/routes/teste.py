@@ -19,7 +19,38 @@ from src.database.postgres.connection.postgres_connection import PostgresPool
 
 # response = requests.get(f"{url_base}/get_chatters/{46736025}")
 url_base = api_config["URL_BASE"]
-response = requests.post(f"{url_base}/send_message/{138603338}/kinoyu_")
+# response = requests.post(f"{url_base}/send_message/{138603338}/kinoyu_")
+params_message = {
+            "platform_id": "68332388",
+            "user_id": "KinoYu",
+            "item_name": "teste",
+            "message_control" : "claim"
+        }
+
+response = requests.get(f"{url_base}/kick_callback/send_message", params=params_message)
+
+
+# import json
+# import requests
+#
+# headers = {
+#     "Authorization": "Bearer ZDA5NZU2ZTYTMJEWYS0ZNMVKLWI0NTCTMZU0OWNHZDEWMJY2",
+#     "Content-Type": "application/json"
+# }
+#
+# payload = {
+#     "content": "teste123",
+#     "reply_to_message_id": "",
+#     "type": "bot"
+# }
+#
+# response = requests.post(
+#     "https://api.kick.com/public/v1/chat",
+#     headers=headers,
+#     data=json.dumps(payload)  # 👈 usa data + json.dumps como no exemplo oficial
+# )
 
 print(response.status_code)
 print(response.text)
+
+

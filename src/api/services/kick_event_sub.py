@@ -8,18 +8,18 @@ from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.redis.redis_repository import RedisRepository
 
 
-class TwitchEventSubController:
+class KickEventSubController:
     def __init__(self):
         self.redis_conn = RedisConnectionHandle().connect()
         self.router = APIRouter()
         # Adiciona a rota apontando para o metodo de instância
         self.router.add_api_route(
-            "/twitch/eventsub",
-            self.twitch_eventsub,
+            "/kick/eventsub",
+            self.kick_eventsub,
             methods=["POST"]
         )
 
-    async def twitch_eventsub(
+    async def kick_eventsub(
         self,
         request: Request,
         twitch_message_id: str = Header(..., alias="Twitch-Eventsub-Message-Id"),
@@ -74,6 +74,6 @@ class TwitchEventSubController:
         return {"status": "ok"}
 
 
-def twitch_event_sub_routes():
-    controller = TwitchEventSubController()
+def kick_event_sub_routes():
+    controller = KickEventSubController()
     return controller.router

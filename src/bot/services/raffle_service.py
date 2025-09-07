@@ -24,35 +24,92 @@ class RaffleService:
         self.guild_id = guild_id
         self.conn = conn
         self.repo_raffle = PostgresRepositoryRaffle(self.conn)
+        self.redis_conn = RedisConnectionHandle().connect()
         self.user_input = True
 
     async def raffle_loop(self, time_in_seconds: int, on_winner_callback):
+        """
+        Loop principal do sorteio:
+        - Espera um tempo definido entre sorteios
+        - Sorteia um item
+        - Escolhe um vencedor aleatório
+        - Aguarda 60s para o claim no Redis
+        - Se houver claim, atualiza o item e notifica
+        - Se não houver claim, tenta re-sorteio até 3 vezes
+        """
+
         while True:
             await asyncio.sleep(time_in_seconds)
 
+            # Pega o próximo item do sorteio
             item = await asyncio.to_thread(partial(self.repo_raffle.make_raffle, self.guild_id))
+
             if not self.user_input or not item:
                 await on_winner_callback(None)
                 print("Itens para sorteio vazio ou usuário parou a função")
                 break
 
+            # Decide aleatoriamente se haverá sorteio
             if random.choice([True, False]):
-                viewer, streamer_id = await asyncio.to_thread(partial(self.raffle_viewer))
-                winner_name = str(viewer['twitch']['user_name'])
+                winner_resolved = False
+                attempt = 0
 
-                item_name = str(item[2])
-                self.update_item(winner_name, item[0], item[1])
-                print(f"Sorteio feito: {item}, vencedor: {winner_name}")
-                url_base = api_config["URL_BASE"]
+                # Tenta até 3 vezes para que alguém dê claim
+                while not winner_resolved and attempt < 3:
+                    winner_resolved, platform_id, winner_name, item_name = await self.make_raffle(item, on_winner_callback)
+                    attempt += 1
 
-                self.send_message_twitch(int(streamer_id),winner_name, item_name)
-                #response = requests.post(f"{url_base}/send_message/{streamer_id}/{winner_name}/{item_name}")
-
-                # Chama o callback e passa as informações
-                await on_winner_callback(winner_name, item)
+                if not winner_resolved:
+                    # Se ninguém deu claim após 3 tentativas, envia aviso e passa para próximo item
+                    print("Nenhum vencedor válido encontrado após 3 tentativas")
+                    self.send_message_twitch(platform_id, winner_name, item_name, message_control="not-claim")
+                    await on_winner_callback(None)
 
             else:
                 print("Não haverá sorteio nesse turno")
+
+    async def make_raffle(self, item, on_winner_callback):
+        """
+        Realiza o sorteio de um item:
+        - Seleciona um usuário aleatório
+        - Envia mensagem de claim
+        - Espera 60s
+        - Verifica no Redis se o usuário deu claim
+        - Retorna (ganhou: bool, platform_id, winner_name, item_name)
+        """
+
+        redis_repository = RedisRepository(self.redis_conn)
+        viewer, streamer_id = await asyncio.to_thread(partial(self.raffle_viewer))
+        winner_name = str(viewer['twitch']['user_name'])
+        item_name = str(item[2])
+        platform_id = self.get_platform_id(int(streamer_id))
+
+        # Envia mensagem de claim no chat
+        self.send_message_twitch(platform_id, winner_name, item_name, message_control="claim")
+
+        # Aguarda 60 segundos para o usuário dar claim
+        await asyncio.sleep(10)
+
+        redis_key = f"{platform_id};{winner_name}"
+        user_claim = redis_repository.get(redis_key)
+
+        if user_claim is None:
+            await asyncio.sleep(5)
+            print(f"{winner_name} não deu claim. Sorteio inválido.")
+            self.send_message_twitch(platform_id, winner_name, item_name, message_control="resend_claim")
+            # Retorna False mas também os dados do item/vencedor
+            return False, platform_id, winner_name, item_name
+
+        # Usuário deu claim, atualiza item
+        self.update_item(winner_name, item[0], item[1])
+        print(f"Sorteio realizado com sucesso: {item}, vencedor: {winner_name}")
+
+        # Envia mensagem de confirmação de claim
+        self.send_message_twitch(platform_id, winner_name, item_name, message_control="winner")
+
+        # Chama callback passando vencedor e item
+        await on_winner_callback(winner_name, item)
+        return True, platform_id, winner_name, item_name
 
     def raffle_viewer(self):
         streamer_id = self.repo_raffle.get_streamer_id(self.guild_id)
@@ -63,9 +120,24 @@ class RaffleService:
         else:
             return raffle_user, streamer_id
 
-    def send_message_twitch(self, streamer_id: int, user_id: str, item_name: str):
+    def send_message_twitch(self, platform_id : str, user_id: str, item_name: str, message_control : bool):
         url_base = api_config["URL_BASE"]
 
+        params_message = {
+            "platform_id": platform_id,
+            "user_id": user_id,
+            "item_name": item_name,
+            "message_control" : message_control
+        }
+
+        resp = requests.post(f"{url_base}/twitch_chatters/send_message", params=params_message)
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"Erro ao enviar a mensagem: {resp.status_code} - {resp.text}")
+
+        return resp.json()
+
+    def get_platform_id(self, streamer_id : int):
         # Pega as plataformas do streamer
         platform_raw = self.repo_raffle.select_streamer_platforms(streamer_id)
         if not platform_raw or 'twitch' not in platform_raw:
@@ -75,18 +147,7 @@ class RaffleService:
         if not platform_id:
             raise RuntimeError(f"Streamer {streamer_id} não possui platform_id válido na Twitch.")
 
-        params_message = {
-            "platform_id": platform_id,
-            "user_id": user_id,
-            "item_name": item_name,
-        }
-
-        resp = requests.post(f"{url_base}/twitch_chatters/send_message", params=params_message)
-
-        if resp.status_code != 200:
-            raise RuntimeError(f"Erro ao enviar a mensagem: {resp.status_code} - {resp.text}")
-
-        return resp.json()
+        return platform_id
 
     def update_item(self, winner_name: str, item_id: int, raffle_id: int):
         try:
@@ -124,8 +185,7 @@ class RaffleService:
             return("Item não foram dividos por virgula")
 
     def streamer_auth_method(self, guild_id : str):
-        redis_conn = RedisConnectionHandle().connect()
-        redis_repository = RedisRepository(redis_conn)
+        redis_repository = RedisRepository(self.redis_conn)
         csrf = str(uuid.uuid4())
         state = f"{guild_id}:{csrf}"
 
@@ -174,7 +234,7 @@ class RaffleService:
             f"response_type=code&"
             f"client_id={kick["CLIENT_ID_KICK"]}&"
             f"redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Fkick_callback%2Fstreamer&"
-            f"scope=user:read&"
+            f"scope=user:read%20chat:write&"
             f"state={encoded_state}&"
             f"code_challenge={code_challenge}&"
             "code_challenge_method=S256"
@@ -183,8 +243,7 @@ class RaffleService:
         return twitch_auth_url_streamer, kick_auth_url
 
     def viewer_auth_method(self, guild_id : str, discord_user_id : str, discord_user_name : str):
-        redis_conn = RedisConnectionHandle().connect()
-        redis_repository = RedisRepository(redis_conn)
+        redis_repository = RedisRepository(self.redis_conn)
         csrf = str(uuid.uuid4())
 
         state_dict = {
