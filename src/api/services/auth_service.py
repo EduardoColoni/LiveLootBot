@@ -17,15 +17,19 @@ class AuthService:
 
     def twitch_refresh_token(self):
         try:
-
+            print(f"teste para ver o platform_id do refresh token twitch: {self.platform_id}")
             token_data = self.repo_auth.select_token_by_platform(self.platform_id)
+            print(f"teste para ver o token do refresh token twitch:{token_data}")
             if not token_data:
                 # Em vez de retornar uma resposta HTTP, levante um erro para ser tratado
-                raise RuntimeError("Token não encontrado.")
+                raise RuntimeError("Token não encontrado twitch.")
 
+            print(f"teste para ver o token do refresh token twitch:{token_data}")
             refresh_token = token_data.get("refresh_token")
+
+            print(f"teste para ver o refresh do refresh token twitch: {refresh_token}")
             if not refresh_token:
-                raise RuntimeError("Refresh token ausente.")
+                raise RuntimeError("Refresh token ausente twitch.")
 
             data = {
                 "client_id": twitch["CLIENT_ID"],
@@ -40,23 +44,23 @@ class AuthService:
 
             token_json = response.json()
             self.repo_auth.refresh_token(token_json, self.platform_id)
-            print("Token atualizado com sucesso!")
+            print("Token atualizado com sucesso twitch!")
 
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Erro na requisição para a Twitch: {str(e)}")
         except Exception as e:
-            raise RuntimeError(f"Erro interno no refresh: {str(e)}")
+            raise RuntimeError(f"Erro interno no refresh twitch: {str(e)}")
 
     def kick_refresh_token(self):
         try:
 
             token_data = self.repo_auth.select_token_by_platform(self.platform_id)
             if not token_data:
-                return {"status": "error", "message": "Token não encontrado."}
+                return {"status": "error", "message": "Token não encontrado kick."}
 
             refresh_token = token_data.get("refresh_token")
             if not refresh_token:
-                return {"status": "error", "message": "Refresh token ausente."}
+                return {"status": "error", "message": "Refresh token ausente kick."}
 
             data = {
                 "grant_type": "refresh_token",
@@ -70,10 +74,10 @@ class AuthService:
 
             token_json = response.json()
             self.repo_auth.refresh_token(token_json, self.platform_id)
-            print("Token atualizado com sucesso!")
-            return {"status": "ok", "message": "Token atualizado com sucesso!"}
+            print("Token atualizado com sucesso! kick")
+            return {"status": "ok", "message": "Token atualizado com sucesso! kick"}
 
         except requests.exceptions.RequestException as e:
-            return {"status": "error", "message": f"Erro na requisição: {str(e)}"}
+            return {"status": "error", "message": f"Erro na requisição kick: {str(e)}"}
         except Exception as e:
-            return {"status": "error", "message": f"Erro interno: {str(e)}"}
+            return {"status": "error", "message": f"Erro interno kick: {str(e)}"}

@@ -204,3 +204,20 @@ class PostgresRepositoryAuth:
         except psycopg2.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to insert/update App Access Token: {e}")
+
+    def kick_insert_or_update_subscription(self, platform_id: int, subscription_id: str) -> None:
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO kick_eventsub_subscriptions (platform_id, subscription_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (platform_id) DO UPDATE SET
+                        subscription_id = EXCLUDED.subscription_id,
+                        created_at = NOW()""",
+                    (platform_id, subscription_id)
+                )
+            self.conn.commit()
+
+        except Exception as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Falha ao inserir ou atualizar a inscrição: {e}")

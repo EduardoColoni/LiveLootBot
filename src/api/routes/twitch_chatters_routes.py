@@ -70,13 +70,15 @@ class TwitchChattersController:
     #     finally:
     #         PostgresPool.release_conn(conn)
 
-    async def send_message(self, request: Request, platform_id: str, user_id: str, item_name: str, message_control: str):
+    async def send_message(self, platform_id: str, user_name: str, item_name: str, message_control: str):
         conn = PostgresPool.get_conn()
-        service = AuthService(conn, platform_id)
+
+        print(f"Esse é o conteudo do platform_id dentro da função da api {platform_id}")
         try:
             repo_auth = PostgresRepositoryAuth(conn)
 
             bot_platform_id = "1355737213"
+            service = AuthService(conn, bot_platform_id)
 
             def load_headers():
                 token_data = repo_auth.select_token_by_platform(bot_platform_id)
@@ -89,9 +91,9 @@ class TwitchChattersController:
 
             # Constrói o corpo da mensagem
             message_map = {
-                "claim": f"🎯 @{user_id}, você foi sorteado para o item: {item_name}! Digite !claim em até 1 minuto para garantir seu prêmio! 🕹️",
-                "resend_claim": f"⚠️ @{user_id} não deu !claim! O item {item_name} será sorteado novamente 🔄🎮",
-                "winner": f"🏆 @{user_id} confirmou o !claim! Você ganhou o item: {item_name} 🎉✨",
+                "claim": f"🎯 @{user_name}, você foi sorteado para o item: {item_name}! Digite !claim em até 1 minuto para garantir seu prêmio! 🕹️",
+                "resend_claim": f"⚠️ @{user_name} não deu !claim! O item {item_name} será sorteado novamente 🔄🎮",
+                "winner": f"🏆 @{user_name} confirmou o !claim! Você ganhou o item: {item_name} 🎉✨",
                 "not-claim": f"❌ Ninguém deu !claim no item {item_name} após 3 tentativas! Um novo item será sorteado 🎲🔥"
             }
 

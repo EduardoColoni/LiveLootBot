@@ -56,19 +56,20 @@ class RaffleService:
 
                 # Tenta até 3 vezes para que alguém dê claim
                 while not winner_resolved and attempt < 3:
-                    winner_resolved, platform_id, winner_name, item_name = await self.make_raffle(item, on_winner_callback)
+                    winner_resolved, viewer, streamer_id, item_name = await self.make_raffle_bot(item, on_winner_callback)
                     attempt += 1
 
                 if not winner_resolved:
                     # Se ninguém deu claim após 3 tentativas, envia aviso e passa para próximo item
                     print("Nenhum vencedor válido encontrado após 3 tentativas")
-                    self.send_message_twitch(platform_id, winner_name, item_name, message_control="not-claim")
+                    self.send_winner_message(viewer, streamer_id, item_name, "not-claim")
+
                     await on_winner_callback(None)
 
             else:
                 print("Não haverá sorteio nesse turno")
 
-    async def make_raffle(self, item, on_winner_callback):
+    async def make_raffle_bot(self, item, on_winner_callback):
         """
         Realiza o sorteio de um item:
         - Seleciona um usuário aleatório
@@ -79,37 +80,35 @@ class RaffleService:
         """
 
         redis_repository = RedisRepository(self.redis_conn)
-        viewer, streamer_id = await asyncio.to_thread(partial(self.raffle_viewer))
-        winner_name = str(viewer['twitch']['user_name'])
-        item_name = str(item[2])
-        platform_id = self.get_platform_id(int(streamer_id))
 
-        # Envia mensagem de claim no chat
-        self.send_message_twitch(platform_id, winner_name, item_name, message_control="claim")
+        #tudo começa aqui, pego o nome do ganhador
+        viewer, streamer_id = await asyncio.to_thread(partial(self.raffle_viewer))
+        item_name = str(item[2])
+
+
+
+        self.send_winner_message(viewer, streamer_id, item_name, "claim")
 
         # Aguarda 60 segundos para o usuário dar claim
         await asyncio.sleep(10)
 
-        redis_key = f"{platform_id};{winner_name}"
-        user_claim = redis_repository.get(redis_key)
+        user_claim = self.get_redis_key(viewer)
 
         if user_claim is None:
             await asyncio.sleep(5)
-            print(f"{winner_name} não deu claim. Sorteio inválido.")
-            self.send_message_twitch(platform_id, winner_name, item_name, message_control="resend_claim")
+            self.send_winner_message(viewer, streamer_id, item_name, "resend_claim")
             # Retorna False mas também os dados do item/vencedor
-            return False, platform_id, winner_name, item_name
+            return False, viewer, streamer_id, item_name
 
         # Usuário deu claim, atualiza item
-        self.update_item(winner_name, item[0], item[1])
-        print(f"Sorteio realizado com sucesso: {item}, vencedor: {winner_name}")
+        self.update_item(viewer['discord']['user_name'], item[0], item[1])
 
         # Envia mensagem de confirmação de claim
-        self.send_message_twitch(platform_id, winner_name, item_name, message_control="winner")
+        self.send_winner_message(viewer, streamer_id, item_name, "winner")
 
         # Chama callback passando vencedor e item
-        await on_winner_callback(winner_name, item)
-        return True, platform_id, winner_name, item_name
+        await on_winner_callback(viewer['discord']['user_name'], item)
+        return True, viewer, streamer_id, item_name
 
     def raffle_viewer(self):
         streamer_id = self.repo_raffle.get_streamer_id(self.guild_id)
@@ -120,34 +119,78 @@ class RaffleService:
         else:
             return raffle_user, streamer_id
 
-    def send_message_twitch(self, platform_id : str, user_id: str, item_name: str, message_control : bool):
+    def send_message_to_api(self, platform_name: str, platform_id: str, viewer_data: dict, item_name: str, message_control: str):
         url_base = api_config["URL_BASE"]
+
+        # Mapeia a plataforma para o endpoint correto
+        platform_endpoint = {
+            "twitch": "twitch_chatters/send_message",
+            "kick": "kick_chatters/send_message"
+        }.get(platform_name)
+
+        if not platform_endpoint:
+            raise ValueError(f"Plataforma '{platform_name}' não suportada.")
+
+        # O viewer_data já contém o 'user_id' e 'user_name'
+        viewer_user_name = viewer_data['user_name']
 
         params_message = {
             "platform_id": platform_id,
-            "user_id": user_id,
+            "user_name": viewer_user_name,
             "item_name": item_name,
-            "message_control" : message_control
+            "message_control": message_control
         }
 
-        resp = requests.post(f"{url_base}/twitch_chatters/send_message", params=params_message)
+        try:
+            resp = requests.post(f"{url_base}/{platform_endpoint}", params=params_message)
+            resp.raise_for_status()  # Levanta um erro se o status não for 200
+            return resp.json()
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Erro ao enviar a mensagem para {platform_name}: {resp.status_code} - {resp.text}")
 
-        if resp.status_code != 200:
-            raise RuntimeError(f"Erro ao enviar a mensagem: {resp.status_code} - {resp.text}")
+    def send_winner_message(self, viewer: dict, streamer_id: int, item_name: str, message_control: str):
+        print(f"Verificando plataformas do ganhador {viewer}...")
 
-        return resp.json()
+        streamer_platform_id_raw = self.repo_raffle.select_streamer_platforms(streamer_id)
 
-    def get_platform_id(self, streamer_id : int):
-        # Pega as plataformas do streamer
-        platform_raw = self.repo_raffle.select_streamer_platforms(streamer_id)
-        if not platform_raw or 'twitch' not in platform_raw:
-            raise RuntimeError(f"Streamer {streamer_id} não possui plataforma Twitch cadastrada.")
+        # 1. Envia para Twitch, se o ganhador estiver cadastrado
+        if viewer['twitch']['id'] is not None:
+            try:
+                print("Ganhador tem cadastro na Twitch. Enviando mensagem...")
+                self.send_message_to_api("twitch", streamer_platform_id_raw['twitch']['platform_id'], viewer['twitch'], item_name, message_control)
+            except RuntimeError as e:
+                print(f"Falha ao enviar mensagem para Twitch: {e}")
 
-        platform_id = platform_raw['twitch'].get('platform_id')
-        if not platform_id:
-            raise RuntimeError(f"Streamer {streamer_id} não possui platform_id válido na Twitch.")
+        # 2. Envia para Kick, se o ganhador estiver cadastrado
+        if viewer['kick']['id'] is not None:
+            try:
+                print("Ganhador tem cadastro na Kick. Enviando mensagem...")
+                self.send_message_to_api("kick", streamer_platform_id_raw['kick']['platform_id'], viewer['kick'], item_name, message_control)
+            except RuntimeError as e:
+                print(f"Falha ao enviar mensagem para Kick: {e}")
 
-        return platform_id
+    def get_redis_key(self, viewer: dict):
+        redis_repository = RedisRepository(self.redis_conn)
+        print(f"Verificando plataformas do ganhador {viewer}...")
+        try:
+            # 1. Envia para Twitch, se o ganhador estiver cadastrado
+            if viewer['twitch']['id'] is not None:
+                try:
+                    redis_twitch_key = f"{viewer['twitch']['id']};{viewer['twitch']['user_name']}"
+                    user_claim_twitch = redis_repository.get(redis_twitch_key)
+                    return user_claim_twitch
+                except RuntimeError as e:
+                    print(f"Falha ao pegar o usuário no redis da twitch: {e}")
+
+        except:
+            # 2. Envia para Kick, se o ganhador estiver cadastrado
+            if viewer['kick']['id'] is not None:
+                try:
+                    redis_kick_key = f"{viewer['kick']['id']};{viewer['kick']['user_name']}"
+                    user_claim_kick = redis_repository.get(redis_kick_key)
+                    return user_claim_kick
+                except RuntimeError as e:
+                    print(f"Falha ao enviar mensagem para Kick: {e}")
 
     def update_item(self, winner_name: str, item_id: int, raffle_id: int):
         try:

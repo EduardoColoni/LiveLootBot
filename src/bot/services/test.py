@@ -43,13 +43,15 @@ def teste():
     # response = requests.get(f"{url_base}/twitch_callback/get_refreshToken", params=params)
 
 
-    # teste_viewer = repo_auth.raffle_viewer(64)
+    # teste_viewer = repo_auth.raffle_viewer(68)
     # print(teste_viewer)
     #
     # if not teste_viewer:
     #     print("Nenhum viewer cadastrado")
     # else:
     #     print(f"{teste_viewer['discord']['user_name']}")
+    #     print(f"{teste_viewer['twitch']['user_name']}")
+    #     print(f"{teste_viewer['kick']['user_name']}")
     # teste_doque_vem = repo_auth.select_streamer_platforms(60)
     # print(f"\n{teste_doque_vem}\n")
     #
@@ -58,8 +60,11 @@ def teste():
     #
     # print(f"\nkick{teste_doque_vem['kick']['platform_id']}\n")
     # print(f"\ntwitch{teste_doque_vem['twitch']['platform_id']}\n")
-    print(response_test)
-#
+    # #print(response_test)
+
+    # teste2 = repo_auth.select_streamer_platforms(67)
+    # streamer_platform_id = teste2['twitch']['platform_id']
+    # print(streamer_platform_id)
 teste()
 #
 #

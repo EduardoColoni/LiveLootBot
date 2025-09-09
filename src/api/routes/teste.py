@@ -22,12 +22,12 @@ url_base = api_config["URL_BASE"]
 # response = requests.post(f"{url_base}/send_message/{138603338}/kinoyu_")
 params_message = {
             "platform_id": "68332388",
-            "user_id": "KinoYu",
+            "user_name": "KinoYu",
             "item_name": "teste",
             "message_control" : "claim"
         }
 
-response = requests.get(f"{url_base}/kick_callback/send_message", params=params_message)
+response = requests.post(f"{url_base}/kick_chatters/send_message", params=params_message)
 
 
 # import json

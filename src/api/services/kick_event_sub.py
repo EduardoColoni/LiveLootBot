@@ -75,18 +75,11 @@ twIDAQAB
             print(f"[Chat Kick] {sender_username}: {message_content} no canal de {event['broadcaster']['username']}")
 
             # Exemplo de lógica similar ao seu código da Twitch
-            redis_key = f"kick:{broadcaster_id}:{sender_username}"
+            redis_key = f"{broadcaster_id};{sender_username}"
             if message_content == "!claim":
                 # AQUI: Lógica de processamento e salvamento no Redis
                 redis_repository.insert_ex(redis_key, sender_username, 17)
                 print(f"Comando !claim recebido. Usuário: {sender_username}")
-
-        elif kick_message_type == "channel.followed":
-            follower_username = data["follower"]["username"]
-            print(f"[Follow Kick] Novo seguidor: {follower_username}")
-
-        # Adicionar outros tipos de eventos conforme a necessidade
-        # ...
 
         return JSONResponse(content={"status": "ok"})
 
