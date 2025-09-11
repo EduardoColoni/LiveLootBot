@@ -190,6 +190,8 @@ class KickAuthController:
             headers = load_headers()
             subscription_data = send_subscription_request(headers)
 
+            repo_auth.kick_insert_or_update_subscription(platform_id, subscription_data['data'][0]['subscription_id'])
+
             print(f"[INFO] Inscrição criada com sucesso: {subscription_data['data'][0]['subscription_id']}")
             return {"status": "ok", "subscription_id": subscription_data['data'][0]['subscription_id']}
 

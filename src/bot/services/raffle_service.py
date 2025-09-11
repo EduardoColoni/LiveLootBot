@@ -172,25 +172,31 @@ class RaffleService:
     def get_redis_key(self, viewer: dict):
         redis_repository = RedisRepository(self.redis_conn)
         print(f"Verificando plataformas do ganhador {viewer}...")
-        try:
-            # 1. Envia para Twitch, se o ganhador estiver cadastrado
-            if viewer['twitch']['id'] is not None:
-                try:
-                    redis_twitch_key = f"{viewer['twitch']['id']};{viewer['twitch']['user_name']}"
-                    user_claim_twitch = redis_repository.get(redis_twitch_key)
-                    return user_claim_twitch
-                except RuntimeError as e:
-                    print(f"Falha ao pegar o usuário no redis da twitch: {e}")
 
-        except:
-            # 2. Envia para Kick, se o ganhador estiver cadastrado
-            if viewer['kick']['id'] is not None:
-                try:
-                    redis_kick_key = f"{viewer['kick']['id']};{viewer['kick']['user_name']}"
-                    user_claim_kick = redis_repository.get(redis_kick_key)
+        # Primeiro, tenta pegar o claim da Twitch.
+        if viewer['twitch']['id'] is not None:
+            try:
+                redis_twitch_key = f"{viewer['twitch']['id']};{viewer['twitch']['user_name']}"
+                user_claim_twitch = redis_repository.get(redis_twitch_key)
+                if user_claim_twitch:
+                    # Se o claim for encontrado, retorna imediatamente.
+                    return user_claim_twitch
+            except Exception as e:
+                print(f"Falha ao pegar o usuário no redis da Twitch: {e}")
+
+        # Se o claim da Twitch não foi encontrado, tenta a Kick.
+        if viewer['kick']['id'] is not None:
+            try:
+                redis_kick_key = f"{viewer['kick']['id']};{viewer['kick']['user_name']}"
+                user_claim_kick = redis_repository.get(redis_kick_key)
+                if user_claim_kick:
+                    # Se o claim for encontrado, retorna imediatamente.
                     return user_claim_kick
-                except RuntimeError as e:
-                    print(f"Falha ao enviar mensagem para Kick: {e}")
+            except Exception as e:
+                print(f"Falha ao pegar o usuário no redis da Kick: {e}")
+
+        # Se nenhum claim foi encontrado em ambas as plataformas, retorna None.
+        return None
 
     def update_item(self, winner_name: str, item_id: int, raffle_id: int):
         try:

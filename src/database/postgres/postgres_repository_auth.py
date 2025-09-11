@@ -205,7 +205,7 @@ class PostgresRepositoryAuth:
             self.conn.rollback()
             raise RuntimeError(f"Failed to insert/update App Access Token: {e}")
 
-    def kick_insert_or_update_subscription(self, platform_id: int, subscription_id: str) -> None:
+    def kick_insert_or_update_subscription(self, platform_id: str, subscription_id: str) -> None:
         try:
             with self.conn.cursor() as cur:
                 cur.execute(
