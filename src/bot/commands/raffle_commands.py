@@ -1,20 +1,11 @@
-import base64
-
 import discord
 from discord import app_commands
-from discord.app_commands import guilds
 from discord.ext import commands
-import pkce
 
 from src.bot.services.raffle_service import RaffleService
 from src.database.postgres.connection.postgres_connection import PostgresPool
-from src.database.redis.redis_repository import RedisRepository
-from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.postgres.postgres_repository_raffle import PostgresRepositoryRaffle
-from src.core.config import twitch
 
-import uuid
-import urllib.parse
 
 # Modal para registrar itens do sorteio
 class RegisterRaffleModal(discord.ui.Modal, title="Registrar itens para sorteio"):
@@ -63,37 +54,11 @@ class Raffle(commands.Cog):
         self.bot = bot
         self.services = {}  # guarda RaffleService por guild_id
 
-    @app_commands.command(name="iniciar", description="Inicia autenticação Twitch")
-    async def ola(self, interaction: discord.Interaction):
-        redis_conn = RedisConnectionHandle().connect()
-        redis_repository = RedisRepository(redis_conn)
-
-        guild_id = str(interaction.guild.id)
-        csrf = str(uuid.uuid4())
-        state = f"{guild_id}:{csrf}"
-        encoded_state = urllib.parse.quote_plus(state)
-
-        redis_repository.insert_ex(f"oauth_state:{csrf}", guild_id, 300)
-
-        auth_url = (
-            "https://id.twitch.tv/oauth2/authorize?"
-            "response_type=code&"
-            "client_id=qamgu47p8wl6qio8fa2ef3e37q3eu2&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
-            "scope=moderator%3Aread%3Achatters+chat:edit+chat:read&"
-            f"state={encoded_state}"
-        )
-
-        await interaction.response.send_message(
-            f"Olá, {interaction.user.name}, clique para autenticar: {auth_url}",
-            ephemeral=True
-        )
-
-    @app_commands.command(name="registrar_sorteio", description="Abre modal para registrar itens")
-    async def registrar_sorteio(self, interaction: discord.Interaction):
+    @app_commands.command(name="registrar_itens", description="Tela para registrar itens para o sorteio")
+    async def registrar_itens(self, interaction: discord.Interaction):
         await interaction.response.send_modal(RegisterRaffleModal(self.services))
 
-    @app_commands.command()
+    @app_commands.command(name="iniciar_sorteio", description="Inicia o loop de sorteio até acabar os itens do sorteio cadastrado ou usuário usar o comando !parar")
     async def iniciar_sorteio(self, interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
         if guild_id not in self.services:
@@ -130,71 +95,39 @@ class Raffle(commands.Cog):
         else:
             await interaction.response.send_message("Nenhum sorteio em execução nesse servidor.")
 
-    @app_commands.command()
-    async def teste(self, interaction: discord.Interaction):
+    @app_commands.command(name="autenticar_plataformas", description="Autenticação primária das plataformas de streams")
+    async def autenticar_streamer(self, interaction: discord.Interaction):
 
         service = RaffleService()
         guild_id = str(interaction.guild.id)
         twitch_auth_url, kick_auth_url = service.streamer_auth_method(guild_id)
-        embed = discord.Embed(title="Teste", description="abc")
+        embed = discord.Embed(title="Autenticar Streamer", description="Comando para fazer a autenticação inicial das plataformas de streaming do streamer")
         embed.set_thumbnail(url="https://i.imgur.com/ZuVOd1O.jpeg")
 
-        embed1 = discord.Embed(title="Primeira Imagem", url=f"{twitch_auth_url}", description="Descrição da primeira imagem.")
+        embed1 = discord.Embed(title="Autenticação na Twitch", url=f"{twitch_auth_url}", description="Clique em **Autenticação na Twitch** para iniciar o processo de autenticação na plataforma.")
         embed1.set_image(url="https://i.imgur.com/1z9lJdj.png")
 
-        # Embed 2
-        embed2 = discord.Embed(title="Segunda Imagem", url=f"{kick_auth_url}" , description="Descrição da segunda imagem.")
+        embed2 = discord.Embed(title="Autenticação na Kick", url=f"{kick_auth_url}" , description="Clique em **Autenticação na Kick** para iniciar o processo de autenticação na plataforma.")
         embed2.set_image(url="https://i.imgur.com/tBQpntA.png")
 
         # Envia os embeds juntos na mesma mensagem
-        await interaction.response.send_message(embeds=[embed,embed1, embed2])
+        await interaction.response.send_message(embeds=[embed, embed1, embed2])
 
-    @app_commands.command()
-    async def sortear_usuario(self, interaction: discord.Interaction):
-        conn = PostgresPool.get_conn()
-        guild_id = str(interaction.guild.id)
-        service = RaffleService(conn, guild_id)
-        user_raffle = service.raffle_viewer()
-
-        if not user_raffle:
-            await interaction.response.send_message("Nenhum usuário para sortear")
-        else:
-            await interaction.response.send_message(f"Usuario sorteado: {user_raffle}")
-
-        PostgresPool.release_conn(conn)
-
-    @app_commands.command()
-    async def teste_mandar_mensagem(self, interaction: discord.Interaction):
-        conn = PostgresPool.get_conn()
-        guild_id = str(interaction.guild.id)
-        service = RaffleService(conn, guild_id)
-        user_raffle = service.teste_mandar_mensagem()
-
-        if not user_raffle:
-            await interaction.response.send_message("Nenhum usuário para sortear")
-        else:
-            await interaction.response.send_message(f"Usuario sorteado: {user_raffle}")
-
-        PostgresPool.release_conn(conn)
-
-    @commands.command(name="autenticar")
-    async def autenticar(self, ctx : commands.Context):
+    @commands.command(name="autenticar", description= "Comando para o viewer se autenticar para o sorteios na plataforma que ele desejar")
+    async def autenticar_viewer(self, ctx : commands.Context):
         service = RaffleService()
         guild_id = str(ctx.guild.id)
         discord_user_id = str(ctx.author.id)
         discord_user_name = str(ctx.author.name)
         twitch_auth_url, kick_auth_url = service.viewer_auth_method(guild_id, discord_user_id, discord_user_name)
 
-        embed = discord.Embed(title="Teste", description="abc")
+        embed = discord.Embed(title="Autenticar Viewer", description="Comando para fazer a autenticação inicial das plataformas de streaming do viewer")
         embed.set_thumbnail(url="https://i.imgur.com/ZuVOd1O.jpeg")
 
-        embed1 = discord.Embed(title="Primeira Imagem", url=f"{twitch_auth_url}",
-                               description="Descrição da primeira imagem.")
+        embed1 = discord.Embed(title="Autenticação na Twitch", url=f"{twitch_auth_url}", description="Clique em **Autenticação na Twitch** para iniciar o processo de autenticação na plataforma.")
         embed1.set_image(url="https://i.imgur.com/1z9lJdj.png")
 
-        # Embed 2
-        embed2 = discord.Embed(title="Segunda Imagem", url=f"{kick_auth_url}",
-                               description="Descrição da segunda imagem.")
+        embed2 = discord.Embed(title="Autenticação na Kick", url=f"{kick_auth_url}", description="Clique em **Autenticação na Kick** para iniciar o processo de autenticação na plataforma.")
         embed2.set_image(url="https://i.imgur.com/tBQpntA.png")
 
         await  ctx.send(embeds=[embed,embed1, embed2])
