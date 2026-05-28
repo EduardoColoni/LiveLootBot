@@ -1,4 +1,4 @@
-# 🎮 KinoYuBot – Discord Bot Integrado à Twitch com Sorteios Automatizados
+# 🎮 LiveLootBot – Discord Bot Integrado à Twitch com Sorteios Automatizados
 
 KinoYuBot é um projeto pessoal desenvolvido com o objetivo de unir tecnologias modernas como Discord, Twitch, FastAPI, Redis e PostgreSQL em um sistema completo de sorteios ao vivo, com autenticação segura via OAuth2.
 
@@ -79,7 +79,7 @@ Desenvolver um bot de Discord capaz de:
 ## 📁 Estrutura de Arquivos
 
 ```
-KinoYuBot/
+LiveLootBot/
 ├── .venv/                              # Ambiente virtual
 ├── .env                                # Variáveis de ambiente (DISCORD_TOKEN, CLIENT_ID, CLIENT_SECRET, DB_PASSWORD, REDIS_HOST, etc.)
 ├── .gitignore
