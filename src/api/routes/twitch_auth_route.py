@@ -184,19 +184,20 @@ class TwitchAuthController:
             PostgresPool.release_conn(conn)
 
     @staticmethod
-    async def event_sub_signature():
+    async def event_sub_signature(platform_id : str):
         conn = PostgresPool.get_conn()
         try:
             repo_auth = PostgresRepositoryAuth(conn)
             url_base = api_config["URL_BASE"]
 
             # Obtém o App Access Token
+            ################################Obviamente aqui foi preguiça minha e preciso mudar isso########################################
             app_access_token = repo_auth.select_app_access_token()
             if not app_access_token:
                 raise RuntimeError("App Access Token não encontrado no banco.")
 
             # IDs do broadcaster e do bot
-            platform_id = "102089057"
+            #platform_id = "102089057"
 
             user_id_bot = "1355737213"
 
