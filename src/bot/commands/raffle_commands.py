@@ -100,18 +100,15 @@ class Raffle(commands.Cog):
 
         service = RaffleService()
         guild_id = str(interaction.guild.id)
-        twitch_auth_url, kick_auth_url = service.streamer_auth_method(guild_id)
+        auth_urls = service.streamer_auth_method(guild_id)
         embed = discord.Embed(title="Autenticar Streamer", description="Comando para fazer a autenticação inicial das plataformas de streaming do streamer")
         embed.set_thumbnail(url="https://i.imgur.com/ZuVOd1O.jpeg")
 
-        embed1 = discord.Embed(title="Autenticação na Twitch", url=f"{twitch_auth_url}", description="Clique em **Autenticação na Twitch** para iniciar o processo de autenticação na plataforma.")
+        embed1 = discord.Embed(title="Autenticação na Twitch", url=f"{auth_urls['twitch']}", description="Clique em **Autenticação na Twitch** para iniciar o processo de autenticação na plataforma.")
         embed1.set_image(url="https://i.imgur.com/1z9lJdj.png")
 
-        embed2 = discord.Embed(title="Autenticação na Kick", url=f"{kick_auth_url}" , description="Clique em **Autenticação na Kick** para iniciar o processo de autenticação na plataforma.")
-        embed2.set_image(url="https://i.imgur.com/tBQpntA.png")
-
         # Envia os embeds juntos na mesma mensagem
-        await interaction.response.send_message(embeds=[embed, embed1, embed2])
+        await interaction.response.send_message(embeds=[embed, embed1])
 
     @commands.command(name="autenticar", description= "Comando para o viewer se autenticar para o sorteios na plataforma que ele desejar")
     async def autenticar_viewer(self, ctx : commands.Context):
@@ -119,18 +116,15 @@ class Raffle(commands.Cog):
         guild_id = str(ctx.guild.id)
         discord_user_id = str(ctx.author.id)
         discord_user_name = str(ctx.author.name)
-        twitch_auth_url, kick_auth_url = service.viewer_auth_method(guild_id, discord_user_id, discord_user_name)
+        auth_urls = service.viewer_auth_method(guild_id, discord_user_id, discord_user_name)
 
         embed = discord.Embed(title="Autenticar Viewer", description="Comando para fazer a autenticação inicial das plataformas de streaming do viewer")
         embed.set_thumbnail(url="https://i.imgur.com/ZuVOd1O.jpeg")
 
-        embed1 = discord.Embed(title="Autenticação na Twitch", url=f"{twitch_auth_url}", description="Clique em **Autenticação na Twitch** para iniciar o processo de autenticação na plataforma.")
+        embed1 = discord.Embed(title="Autenticação na Twitch", url=f"{auth_urls['twitch']}", description="Clique em **Autenticação na Twitch** para iniciar o processo de autenticação na plataforma.")
         embed1.set_image(url="https://i.imgur.com/1z9lJdj.png")
 
-        embed2 = discord.Embed(title="Autenticação na Kick", url=f"{kick_auth_url}", description="Clique em **Autenticação na Kick** para iniciar o processo de autenticação na plataforma.")
-        embed2.set_image(url="https://i.imgur.com/tBQpntA.png")
-
-        await  ctx.send(embeds=[embed,embed1, embed2])
+        await  ctx.send(embeds=[embed,embed1])
 
 # Setup para carregar o Cog
 async def setup(bot):

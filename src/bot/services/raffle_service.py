@@ -3,12 +3,10 @@ import asyncio
 import re
 from functools import partial
 
-from src.core.config import kick
 from src.core.config import twitch
 
 import uuid
 import urllib.parse
-import pkce
 import json, base64
 import requests
 from anyio import sleep
@@ -124,8 +122,7 @@ class RaffleService:
 
         # Mapeia a plataforma para o endpoint correto
         platform_endpoint = {
-            "twitch": "twitch_chatters/send_message",
-            "kick": "kick_chatters/send_message"
+            "twitch": "twitch_chatters/send_message"
         }.get(platform_name)
 
         if not platform_endpoint:
@@ -161,19 +158,11 @@ class RaffleService:
             except RuntimeError as e:
                 print(f"Falha ao enviar mensagem para Twitch: {e}")
 
-        # 2. Envia para Kick, se o ganhador estiver cadastrado
-        if viewer['kick']['id'] is not None:
-            try:
-                print("Ganhador tem cadastro na Kick. Enviando mensagem...")
-                self.send_message_to_api("kick", streamer_platform_id_raw['kick']['platform_id'], viewer['kick'], item_name, message_control)
-            except RuntimeError as e:
-                print(f"Falha ao enviar mensagem para Kick: {e}")
-
     def get_redis_key(self, viewer: dict):
         redis_repository = RedisRepository(self.redis_conn)
         print(f"Verificando plataformas do ganhador {viewer}...")
 
-        # Primeiro, tenta pegar o claim da Twitch.
+        # Tenta pegar o claim da Twitch.
         if viewer['twitch']['id'] is not None:
             try:
                 redis_twitch_key = f"{viewer['twitch']['id']};{viewer['twitch']['user_name']}"
@@ -184,18 +173,7 @@ class RaffleService:
             except Exception as e:
                 print(f"Falha ao pegar o usuário no redis da Twitch: {e}")
 
-        # Se o claim da Twitch não foi encontrado, tenta a Kick.
-        if viewer['kick']['id'] is not None:
-            try:
-                redis_kick_key = f"{viewer['kick']['id']};{viewer['kick']['user_name']}"
-                user_claim_kick = redis_repository.get(redis_kick_key)
-                if user_claim_kick:
-                    # Se o claim for encontrado, retorna imediatamente.
-                    return user_claim_kick
-            except Exception as e:
-                print(f"Falha ao pegar o usuário no redis da Kick: {e}")
-
-        # Se nenhum claim foi encontrado em ambas as plataformas, retorna None.
+        # Se nenhum claim foi encontrado, retorna None.
         return None
 
     def update_item(self, winner_name: str, item_id: int, raffle_id: int):
@@ -234,7 +212,6 @@ class RaffleService:
             return("Item não foram dividos por virgula")
 
     def streamer_auth_method(self, guild_id : str):
-        redis_repository = RedisRepository(self.redis_conn)
         csrf = str(uuid.uuid4())
         state = f"{guild_id}:{csrf}"
 
@@ -244,12 +221,6 @@ class RaffleService:
         }
         state_json = json.dumps(state_dict)
         encoded_state = urllib.parse.quote_plus(base64.b64encode(state_json.encode()).decode())
-
-        # Gerar PKCE pair
-        code_verifier = pkce.generate_code_verifier(length=128)
-        code_challenge = pkce.get_code_challenge(code_verifier)
-
-        redis_repository.insert_ex(f"oauth_state:{csrf}", code_verifier, 300)
 
         twitch_auth_url = (
             twitch["TWITCH_URL"] + "/authorize?"
@@ -278,21 +249,11 @@ class RaffleService:
             f"state={encoded_state}"
         )
 
-        kick_auth_url = (
-            kick["KICK_URL"] + "/authorize?"
-            f"response_type=code&" 
-            f"client_id={kick["CLIENT_ID_KICK"]}&"
-            f"redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Fkick_callback%2Fstreamer&"
-            f"scope=user:read%20chat:write%20events:subscribe&"
-            f"state={encoded_state}&"
-            f"code_challenge={code_challenge}&"
-            "code_challenge_method=S256"
-        )
-
-        return twitch_auth_url_streamer, kick_auth_url
+        # Um dicionário por plataforma: para adicionar uma nova, basta montar a URL
+        # dela acima e acrescentar mais uma chave aqui.
+        return {"twitch": twitch_auth_url_streamer}
 
     def viewer_auth_method(self, guild_id : str, discord_user_id : str, discord_user_name : str):
-        redis_repository = RedisRepository(self.redis_conn)
         csrf = str(uuid.uuid4())
 
         state_dict = {
@@ -304,12 +265,6 @@ class RaffleService:
         state_json = json.dumps(state_dict)
         encoded_state = urllib.parse.quote_plus(base64.b64encode(state_json.encode()).decode())
 
-        # Gerar PKCE pair
-        code_verifier = pkce.generate_code_verifier(length=128)
-        code_challenge = pkce.get_code_challenge(code_verifier)
-
-        redis_repository.insert_ex(f"oauth_state:{csrf}", code_verifier, 300)
-
         twitch_auth_url = (
             twitch["TWITCH_URL"] + "/authorize?"
             "response_type=code&"
@@ -318,15 +273,6 @@ class RaffleService:
             "scope=user:read:email&"
             f"state={encoded_state}"
         )
-        kick_auth_url = (
-            kick["KICK_URL"] + "/authorize?"
-            f"response_type=code&"
-            f"client_id={kick["CLIENT_ID_KICK"]}&"
-            f"redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Fkick_callback%2Fviewer&"
-            f"scope=user:read&"
-            f"state={encoded_state}&"
-            f"code_challenge={code_challenge}&"
-            "code_challenge_method=S256"
-        )
-
-        return twitch_auth_url, kick_auth_url
+        # Um dicionário por plataforma: para adicionar uma nova, basta montar a URL
+        # dela acima e acrescentar mais uma chave aqui.
+        return {"twitch": twitch_auth_url}

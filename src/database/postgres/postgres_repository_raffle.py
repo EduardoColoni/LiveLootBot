@@ -126,9 +126,12 @@ class PostgresRepositoryRaffle:
     def raffle_viewer(self, streamer_id : int):
         try:
             with self.conn.cursor() as cur:
+                # Colunas nomeadas (e não SELECT *) para o resultado não depender da ordem
+                # das colunas da tabela. Para uma plataforma nova, basta adicionar as
+                # colunas dela aqui e no dicionário abaixo.
                 cur.execute(
                     """
-                    SELECT *
+                    SELECT discord_id, discord_user_name, twitch_id, twitch_user_name
                     FROM authenticated_users
                     WHERE streamer_id = %s
                     ORDER BY RANDOM()
@@ -145,16 +148,12 @@ class PostgresRepositoryRaffle:
 
                 result = {
                     "discord": {
-                        "id": row[2],
-                        "user_name": row[5]
+                        "id": row[0],
+                        "user_name": row[1]
                     },
                     "twitch": {
-                        "id": row[3],
-                        "user_name": row[6]
-                    },
-                    "kick": {
-                        "id": row[4],
-                        "user_name": row[7]
+                        "id": row[2],
+                        "user_name": row[3]
                     }
                 }
 

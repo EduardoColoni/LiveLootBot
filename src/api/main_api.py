@@ -2,10 +2,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes.kick_auth_route import kick_setup_auth_routes
-from src.api.routes.kick_chatters_routes import kick_setup_chatters_routes
 from src.api.routes.overlays import setup_overlays_routes
-from src.api.services.kick_event_sub import kick_event_sub_routes
 from src.api.services.twitch_event_sub import twitch_event_sub_routes
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.api.routes.twitch_auth_route import setup_auth_routes
@@ -33,7 +30,4 @@ app.mount("/static", StaticFiles(directory="src/api/static"), name="static")
 app.include_router(setup_auth_routes())
 app.include_router(twitch_event_sub_routes())
 app.include_router(setup_chatters_routes())
-app.include_router(kick_setup_auth_routes())
-app.include_router(kick_setup_chatters_routes())
-app.include_router(kick_event_sub_routes())
 app.include_router(setup_overlays_routes())

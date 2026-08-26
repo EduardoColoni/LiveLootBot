@@ -15,15 +15,6 @@ twitch = {
     'TWITCH_URL' : os.getenv('TWITCH_URL', 'https://id.twitch.tv/oauth2'),
 }
 
-kick = {
-    'CLIENT_ID_KICK': str(os.getenv('CLIENT_ID_KICK')),
-    'CLIENT_SECRET_KICK': str(os.getenv('CLIENT_SECRET_KICK')),
-    'REDIRECT_URI_STREAMER_KICK': os.getenv('REDIRECT_URI_STREAMER_KICK', 'http://localhost:8000/twitch_callback'),
-    'REDIRECT_URI_VIEWER_KICK': os.getenv('REDIRECT_URI_VIEWER_KICK', 'http://localhost:8000/twitch_callback'),
-    'KICK_URL' : os.getenv('KICK_URL', 'https://id.kick.com/oauth'),
-}
-
-
 connection_options_postgres = {
     'HOST': os.getenv('DB_HOST', 'localhost'),
     'PORT': int(os.getenv('DB_PORT', 5432)),

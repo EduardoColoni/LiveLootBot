@@ -12,18 +12,15 @@ class PostgresRepositoryAuth:
             streamer_id: int,
             discord_id: str,
             twitch_id: str = None,
-            kick_id: str = None,
             discord_user_name: str = None,
-            twitch_user_name: str = None,
-            kick_user_name: str = None
+            twitch_user_name: str = None
     ):
         # Coloca todos os campos em um dicionário
+        # Para uma plataforma nova, basta adicionar os campos dela aqui, no INSERT e nos values
         fields = {
             "twitch_id": twitch_id,
-            "kick_id": kick_id,
             "discord_user_name": discord_user_name,
-            "twitch_user_name": twitch_user_name,
-            "kick_user_name": kick_user_name
+            "twitch_user_name": twitch_user_name
         }
 
         # Monta o SET do ON CONFLICT dinamicamente, ignorando campos que são None
@@ -34,14 +31,14 @@ class PostgresRepositoryAuth:
 
         query = f"""
         INSERT INTO authenticated_users
-        (streamer_id, discord_id, twitch_id, kick_id, discord_user_name, twitch_user_name, kick_user_name, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+        (streamer_id, discord_id, twitch_id, discord_user_name, twitch_user_name, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
         ON CONFLICT (streamer_id, discord_id) DO UPDATE
         SET {set_clauses},
             updated_at = NOW()
         """
 
-        values = (streamer_id, discord_id, twitch_id, kick_id, discord_user_name, twitch_user_name, kick_user_name)
+        values = (streamer_id, discord_id, twitch_id, discord_user_name, twitch_user_name)
 
         try:
             with self.conn.cursor() as cur:
@@ -204,20 +201,3 @@ class PostgresRepositoryAuth:
         except psycopg2.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to insert/update App Access Token: {e}")
-
-    def kick_insert_or_update_subscription(self, platform_id: str, subscription_id: str) -> None:
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO kick_eventsub_subscriptions (platform_id, subscription_id)
-                    VALUES (%s, %s)
-                    ON CONFLICT (platform_id) DO UPDATE SET
-                        subscription_id = EXCLUDED.subscription_id,
-                        created_at = NOW()""",
-                    (platform_id, subscription_id)
-                )
-            self.conn.commit()
-
-        except Exception as e:
-            self.conn.rollback()
-            raise RuntimeError(f"Falha ao inserir ou atualizar a inscrição: {e}")

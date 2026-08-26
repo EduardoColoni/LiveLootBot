@@ -27,28 +27,8 @@ params_message = {
             "message_control" : "claim"
         }
 
-response = requests.post(f"{url_base}/kick_chatters/send_message", params=params_message)
+response = requests.post(f"{url_base}/twitch_chatters/send_message", params=params_message)
 
-
-# import json
-# import requests
-#
-# headers = {
-#     "Authorization": "Bearer ZDA5NZU2ZTYTMJEWYS0ZNMVKLWI0NTCTMZU0OWNHZDEWMJY2",
-#     "Content-Type": "application/json"
-# }
-#
-# payload = {
-#     "content": "teste123",
-#     "reply_to_message_id": "",
-#     "type": "bot"
-# }
-#
-# response = requests.post(
-#     "https://api.kick.com/public/v1/chat",
-#     headers=headers,
-#     data=json.dumps(payload)  # 👈 usa data + json.dumps como no exemplo oficial
-# )
 
 print(response.status_code)
 print(response.text)

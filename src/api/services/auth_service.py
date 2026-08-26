@@ -1,6 +1,6 @@
 import requests
 
-from src.core.config import twitch, kick
+from src.core.config import twitch
 from src.database.redis.redis_repository import RedisRepository
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.postgres.postgres_repository_auth import PostgresRepositoryAuth
@@ -50,34 +50,3 @@ class AuthService:
             raise RuntimeError(f"Erro na requisição para a Twitch: {str(e)}")
         except Exception as e:
             raise RuntimeError(f"Erro interno no refresh twitch: {str(e)}")
-
-    def kick_refresh_token(self):
-        try:
-
-            token_data = self.repo_auth.select_token_by_platform(self.platform_id)
-            if not token_data:
-                return {"status": "error", "message": "Token não encontrado kick."}
-
-            refresh_token = token_data.get("refresh_token")
-            if not refresh_token:
-                return {"status": "error", "message": "Refresh token ausente kick."}
-
-            data = {
-                "grant_type": "refresh_token",
-                "client_id": kick["CLIENT_ID_KICK"],
-                "client_secret": kick["CLIENT_SECRET_KICK"],
-                "refresh_token": refresh_token
-            }
-
-            response = requests.post(f"{kick['KICK_URL']}/token", data=data, timeout=10)
-            response.raise_for_status()
-
-            token_json = response.json()
-            self.repo_auth.refresh_token(token_json, self.platform_id)
-            print("Token atualizado com sucesso! kick")
-            return {"status": "ok", "message": "Token atualizado com sucesso! kick"}
-
-        except requests.exceptions.RequestException as e:
-            return {"status": "error", "message": f"Erro na requisição kick: {str(e)}"}
-        except Exception as e:
-            return {"status": "error", "message": f"Erro interno kick: {str(e)}"}

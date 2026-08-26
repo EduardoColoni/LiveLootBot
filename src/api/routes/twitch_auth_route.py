@@ -108,7 +108,7 @@ class TwitchAuthController:
 
                 streamer_id = int(streamer_id)
 
-                repo_auth.insert_user(streamer_id, discord_user_id, twitch_id, None, discord_user_name, twitch_user_name, None) #Vou mudar essa daqui, antes disso vou precisar fazer uma consulta para pegar o id do streamer com o guild_id
+                repo_auth.insert_user(streamer_id, discord_user_id, twitch_id, discord_user_name, twitch_user_name) #Vou mudar essa daqui, antes disso vou precisar fazer uma consulta para pegar o id do streamer com o guild_id
                 print("Autenticação concluída com sucesso!")
                 return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
 
