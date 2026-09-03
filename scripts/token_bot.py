@@ -13,6 +13,7 @@ Rode da RAIZ do projeto, com o venv ativo:
         Troca o code pelo token e imprime o INSERT pronto para colar no DBeaver.
         O code expira em poucos minutos e só serve uma vez.
 """
+import os
 import sys
 import uuid
 import json
@@ -20,6 +21,10 @@ import base64
 import urllib.parse
 
 import requests
+
+# Rodando como "python scripts/token_bot.py", o Python coloca scripts/ no path,
+# e não a raiz do projeto — sem isso o "from src..." abaixo não encontra nada.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.config import twitch
 
