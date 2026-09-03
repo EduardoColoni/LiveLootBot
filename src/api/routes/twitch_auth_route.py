@@ -224,6 +224,30 @@ class TwitchAuthController:
             PostgresPool.release_conn(conn)
 
     @staticmethod
+    def find_eventsub_subscription(headers: dict, broadcaster_id: str, user_id_bot: str):
+        """
+        Procura na Twitch a inscrição de chat desse canal com esse bot.
+
+        Serve para quando a Twitch responde 409 (já existe): o banco é que está
+        fora de sincronia, e aí dá para gravar a que já existe em vez de falhar.
+        """
+        response = requests.get(
+            "https://api.twitch.tv/helix/eventsub/subscriptions",
+            headers=headers,
+            timeout=10
+        )
+        response.raise_for_status()
+
+        for sub in response.json().get("data", []):
+            condition = sub.get("condition", {})
+            if (sub.get("type") == "channel.chat.message"
+                    and str(condition.get("broadcaster_user_id")) == str(broadcaster_id)
+                    and str(condition.get("user_id")) == str(user_id_bot)):
+                return sub
+
+        return None
+
+    @staticmethod
     async def event_sub_signature(platform_id : str):
         conn = PostgresPool.get_conn()
         try:
@@ -265,10 +289,31 @@ class TwitchAuthController:
                 json=body
             )
 
-            if response.status_code != 202:
-                raise RuntimeError(f"Erro ao criar EventSub subscription: {response.status_code} - {response.text}")
+            if response.status_code == 202:
+                sub = response.json()["data"][0]
 
-            sub = response.json()["data"][0]
+            elif response.status_code == 409:
+                # Já existe na Twitch: quem estava desatualizado era o banco.
+                sub = TwitchAuthController.find_eventsub_subscription(headers, platform_id, user_id_bot)
+                if sub is None:
+                    raise RuntimeError(
+                        f"A Twitch diz que a inscrição já existe, mas ela não apareceu na listagem: {response.text}"
+                    )
+
+                # Se o callback dela for outro (uma URL antiga de ngrok, por
+                # exemplo), reaproveitar deixaria o banco dizendo 'enabled'
+                # enquanto os eventos vão para outro lugar.
+                callback_atual = sub.get("transport", {}).get("callback")
+                if callback_atual != f"{url_base}/twitch/eventsub":
+                    raise RuntimeError(
+                        f"A inscrição {sub['id']} já existe mas aponta para {callback_atual}, "
+                        f"e não para {url_base}/twitch/eventsub. Apague ela na Twitch e rode de novo."
+                    )
+
+                print(f"[INFO] Inscrição já existia na Twitch, reaproveitando: {sub['id']}")
+
+            else:
+                raise RuntimeError(f"Erro ao criar EventSub subscription: {response.status_code} - {response.text}")
 
             print(response.status_code, response.text)
             print(f"teste: {response.status_code} e tambem o: {response.text}")
