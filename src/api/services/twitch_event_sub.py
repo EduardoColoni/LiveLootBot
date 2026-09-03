@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import json
 
+from src.core.config import twitch
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.redis.redis_repository import RedisRepository
 
@@ -56,9 +57,18 @@ class TwitchEventSubController:
             event = data["event"]
 
             broadcaster_id = event['broadcaster_user_id']
+            chatter_id = event['chatter_user_id']
             chatter_user_name = event['chatter_user_name']
             chatter_message = event['message']['text']
-            redis_key = f"{broadcaster_id};{chatter_user_name}"
+
+            # As mensagens do próprio bot também voltam por aqui. Sem isso elas
+            # viram ruído no log e, no limite, o bot daria claim em si mesmo.
+            if str(chatter_id) == str(twitch["BOT_PLATFORM_ID"]):
+                return {"status": "ok"}
+
+            # Canal e quem falou, os dois por id: pode haver mais de uma live ao
+            # mesmo tempo, e o mesmo viewer pode estar em duas delas.
+            redis_key = f"claim:twitch:{broadcaster_id}:{chatter_id}"
             print(f"Esse é a key do redis ->>>>: {redis_key}")
 
             if chatter_message == "!claim":

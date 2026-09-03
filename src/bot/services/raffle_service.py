@@ -83,14 +83,19 @@ class RaffleService:
         viewer, streamer_id = await asyncio.to_thread(partial(self.raffle_viewer))
         item_name = str(item[2])
 
-
+        # A chave vive mais tempo no Redis do que a espera desta rodada, então
+        # limpa antes de avisar no chat: senão um claim da rodada anterior
+        # contaria como claim desta.
+        claim_key = self.claim_key(viewer, streamer_id)
+        if claim_key:
+            redis_repository.delete(claim_key)
 
         self.send_winner_message(viewer, streamer_id, item_name, "claim")
 
         # Aguarda 60 segundos para o usuário dar claim
         await asyncio.sleep(10)
 
-        user_claim = self.get_redis_key(viewer)
+        user_claim = self.get_redis_key(claim_key)
 
         if user_claim is None:
             await asyncio.sleep(5)
@@ -158,23 +163,37 @@ class RaffleService:
             except RuntimeError as e:
                 print(f"Falha ao enviar mensagem para Twitch: {e}")
 
-    def get_redis_key(self, viewer: dict):
+    def claim_key(self, viewer: dict, streamer_id: int):
+        """
+        Monta a chave do claim no Redis, do mesmo jeito que o webhook monta.
+
+        Precisa do id do canal e do id do viewer: pode haver mais de uma live
+        rodando ao mesmo tempo e o mesmo viewer estar em duas, então só o id do
+        viewer não diz em qual canal ele deu claim.
+
+        Para uma plataforma nova, é montar a chave dela do mesmo jeito aqui.
+        """
+        if viewer['twitch']['id'] is None:
+            return None
+
+        streamer_platforms = self.repo_raffle.select_streamer_platforms(streamer_id)
+        if not streamer_platforms or 'twitch' not in streamer_platforms:
+            print("Streamer sem cadastro na Twitch, não dá para montar a chave do claim")
+            return None
+
+        broadcaster_id = streamer_platforms['twitch']['platform_id']
+        return f"claim:twitch:{broadcaster_id}:{viewer['twitch']['id']}"
+
+    def get_redis_key(self, claim_key: str):
+        if not claim_key:
+            return None
+
         redis_repository = RedisRepository(self.redis_conn)
-        print(f"Verificando plataformas do ganhador {viewer}...")
-
-        # Tenta pegar o claim da Twitch.
-        if viewer['twitch']['id'] is not None:
-            try:
-                redis_twitch_key = f"{viewer['twitch']['id']};{viewer['twitch']['user_name']}"
-                user_claim_twitch = redis_repository.get(redis_twitch_key)
-                if user_claim_twitch:
-                    # Se o claim for encontrado, retorna imediatamente.
-                    return user_claim_twitch
-            except Exception as e:
-                print(f"Falha ao pegar o usuário no redis da Twitch: {e}")
-
-        # Se nenhum claim foi encontrado, retorna None.
-        return None
+        try:
+            return redis_repository.get(claim_key)
+        except Exception as e:
+            print(f"Falha ao pegar o claim no redis: {e}")
+            return None
 
     def update_item(self, winner_name: str, item_id: int, raffle_id: int):
         try:
