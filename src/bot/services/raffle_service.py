@@ -244,14 +244,14 @@ class RaffleService:
             twitch["TWITCH_URL"] + "/authorize?"
             "response_type=code&"
             f"client_id={twitch['CLIENT_ID']}&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
+            f"redirect_uri={urllib.parse.quote_plus(twitch['REDIRECT_URI_BOT'])}&"
             "scope=chat:read+chat:edit+user:read:chat+user:write:chat+user:bot+moderator:read:chatters&"
             f"state={encoded_state}"
         )
 
         # Um dicionário por plataforma: para adicionar uma nova, basta montar a URL
         # dela acima e acrescentar mais uma chave aqui.
-        return {"twitch": twitch_auth_url_streamer}
+        return {"twitch": twitch_auth_url_streamer, "twitch_bot": twitch_auth_url_bot}
 
     def viewer_auth_method(self, guild_id : str, discord_user_id : str, discord_user_name : str):
         csrf = str(uuid.uuid4())

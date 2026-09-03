@@ -77,13 +77,22 @@ class TwitchChattersController:
         try:
             repo_auth = PostgresRepositoryAuth(conn)
 
-            bot_platform_id = "1355737213"
+            bot_platform_id = twitch["BOT_PLATFORM_ID"]
             service = AuthService(conn, bot_platform_id)
 
             def load_headers():
                 token_data = repo_auth.select_token_by_platform(bot_platform_id)
                 if not token_data or "access_token" not in token_data:
-                    raise RuntimeError("Token de acesso não encontrado")
+                    # Esse token só existe depois de alguém autorizar a conta do bot
+                    # no navegador, então não dá para gerar aqui: avisa o que fazer.
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            f"Token do bot (platform_id {bot_platform_id}) não está no banco. "
+                            "Rode /autenticar_plataformas no Discord e clique em "
+                            "'Autenticação do Bot', logado na Twitch com a conta do bot."
+                        )
+                    )
                 return {
                     "Authorization": f"Bearer {token_data['access_token']}",
                     "Client-Id": twitch["CLIENT_ID"]

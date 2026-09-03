@@ -144,6 +144,53 @@ class PostgresRepositoryAuth:
             self.conn.rollback()
             raise RuntimeError(f"Erro ao pegar o App Access Token: {e}")
 
+    def select_valid_app_access_token(self, margem_segundos: int = 300):
+        """
+        Igual ao select_app_access_token, mas só devolve o token se ele ainda
+        não expirou. A margem evita pegar um token que vence no meio da requisição.
+        """
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT token_data
+                    FROM app_access_token
+                    WHERE expires_at > NOW() + (%s * interval '1 second')
+                    ORDER BY expires_at DESC
+                    LIMIT 1
+                    """,
+                    (margem_segundos,)
+                )
+                row = cur.fetchone()
+                if row:
+                    return json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                return None  # não tem token válido, quem chamou que gere um novo
+        except Exception as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Erro ao pegar o App Access Token válido: {e}")
+
+    def insert_bot_token(self, token_data: dict, streamer_id: int, platform_id: str, platform_name: str = "twitch_bot"):
+        """
+        Grava o token da conta do bot.
+
+        Usa um platform_name próprio ('twitch_bot') para não bater na UNIQUE
+        (streamer_id, platform_name) da linha do streamer, e não toca na tabela
+        streamer — o bot não é um streamer, é a conta que fala no chat.
+        """
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO streamer_platform (streamer_id, platform_id, platform_name, token) "
+                    "VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT (platform_id) DO UPDATE SET token = EXCLUDED.token, updated_at = NOW()",
+                    (streamer_id, platform_id, platform_name, json.dumps(token_data))
+                )
+            self.conn.commit()
+
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Failed to insert/update bot token: {e}")
+
     def insert_eventsub_subscription(
                 self,
                 streamer_id: int,

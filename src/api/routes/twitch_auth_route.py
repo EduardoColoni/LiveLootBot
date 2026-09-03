@@ -3,6 +3,7 @@ import requests
 import urllib.parse
 import json, base64
 
+from src.api.services.auth_service import AuthService
 from src.core.config import twitch
 from src.core.config import api_config
 from src.database.postgres.postgres_repository_auth import PostgresRepositoryAuth
@@ -19,6 +20,7 @@ class TwitchAuthController:
         self.router = APIRouter()
         self.router.add_api_route("/twitch_callback/streamer", self.twitch_callback_streamer, methods=["GET"])
         self.router.add_api_route("/twitch_callback/viewer", self.twitch_callback_viewer, methods=["GET"])
+        self.router.add_api_route("/twitch_callback/bot", self.twitch_callback_bot, methods=["GET"])
         self.router.add_api_route("/twitch_callback/twitch_app_access_token", self.twitch_app_access_token, methods=["GET"])
         self.router.add_api_route("/twitch_callback/event_sub_signature", self.event_sub_signature, methods=["GET"])
 
@@ -61,6 +63,72 @@ class TwitchAuthController:
                     return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
                 else:
                     return HTMLResponse("<h1>Apenas um streamer pode ser cadastrado por servidor ou streamer já autenticado, caso precise de ajuda entre em contato com o suporte!</h1>")
+
+        except ValueError:
+            return HTMLResponse("<h1>State malformado.</h1>", status_code=400)
+        except requests.exceptions.RequestException as e:
+            return HTMLResponse(f"<h1>Erro de requisição: {str(e)}</h1>", status_code=500)
+        finally:
+            PostgresPool.release_conn(conn)
+
+    async def twitch_callback_bot(self, request: Request):
+        """
+        Callback da autorização da conta do BOT.
+
+        Diferente do callback do streamer, aqui não se cria nem se atualiza nada
+        na tabela streamer: o bot não é um streamer, é a conta que fala no chat.
+        O token vai para streamer_platform com platform_name 'twitch_bot'.
+        """
+        conn = PostgresPool.get_conn()
+        encoded_state = request.query_params.get("state")
+        try:
+            repo_auth = PostgresRepositoryAuth(conn)
+            code = request.query_params.get("code")
+
+            if not code or not encoded_state:
+                return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
+
+            state_json = base64.b64decode(urllib.parse.unquote(encoded_state)).decode()
+            state_dict = json.loads(state_json)
+            guild_id = state_dict["guild_id"]
+
+            data = {
+                "client_id": twitch["CLIENT_ID"],
+                "client_secret": twitch["CLIENT_SECRET"],
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": twitch["REDIRECT_URI_BOT"]
+            }
+
+            response = requests.post(twitch["TWITCH_URL"] + "/token", data=data, timeout=10)
+
+            if response.status_code != 200:
+                return HTMLResponse(f"Erro ao autenticar: {response.text}", status_code=response.status_code)
+
+            token_json = response.json()
+            bot_login, bot_platform_id, bot_display_name = self.get_user(token_json["access_token"])
+
+            # O resto do código busca o token do bot por esse id fixo, então
+            # autorizar com a conta errada gravaria um token que ninguém acha.
+            if str(bot_platform_id) != str(twitch["BOT_PLATFORM_ID"]):
+                return HTMLResponse(
+                    f"<h1>Conta errada</h1>"
+                    f"<p>Você autorizou com a conta <b>{bot_display_name}</b> (id {bot_platform_id}), "
+                    f"mas o bot configurado é o id <b>{twitch['BOT_PLATFORM_ID']}</b>.</p>"
+                    f"<p>Saia da Twitch, entre com a conta do bot e tente de novo.</p>",
+                    status_code=400
+                )
+
+            streamer_id = repo_auth.select_streamer_id(guild_id)
+            if streamer_id is None:
+                return HTMLResponse(
+                    "<h1>Nenhum streamer autenticado nesse servidor. Autentique o streamer primeiro.</h1>",
+                    status_code=400
+                )
+
+            repo_auth.insert_bot_token(token_json, int(streamer_id), str(bot_platform_id))
+            print(f"Token do bot ({bot_display_name}) salvo com sucesso!")
+            return HTMLResponse("<h1>Bot autenticado com sucesso! 🤖</h1>")
 
         except ValueError:
             return HTMLResponse("<h1>State malformado.</h1>", status_code=400)
@@ -139,47 +207,19 @@ class TwitchAuthController:
 
     @staticmethod
     async def twitch_app_access_token():
+        """
+        Força a geração de um App Access Token novo.
+
+        Continua existindo para uso manual, mas não é mais obrigatório chamar
+        antes do event_sub_signature: ele já gera sozinho quando precisa.
+        """
         conn = PostgresPool.get_conn()
-        repo_auth = PostgresRepositoryAuth(conn)
-
         try:
-            data = {
-                "client_id": twitch["CLIENT_ID"],
-                "client_secret": twitch["CLIENT_SECRET"],
-                "grant_type": "client_credentials",
-            }
-
-            # Faz a requisição à Twitch
-            try:
-                response = requests.post(
-                    f"{twitch['TWITCH_URL']}/token",
-                    data=data,
-                    timeout=10
-                )
-            except requests.exceptions.RequestException as e:
-                raise HTTPException(status_code=500, detail=f"Erro ao conectar na Twitch: {e}")
-
-            # Checa o status da resposta
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Twitch retornou erro: {response.text}"
-                )
-
-            token_json = response.json()
-
-            # Valida se o token veio corretamente
-            if "access_token" not in token_json:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Twitch não retornou um access_token válido: {token_json}"
-                )
-
-            # Insere/atualiza no banco
-            repo_auth.insert_app_access_token(token_json)
-
+            token_json = AuthService(conn).generate_app_access_token()
             return {"status": "ok", "access_token": token_json["access_token"]}
 
+        except RuntimeError as e:
+            raise HTTPException(status_code=500, detail=str(e))
         finally:
             PostgresPool.release_conn(conn)
 
@@ -190,16 +230,14 @@ class TwitchAuthController:
             repo_auth = PostgresRepositoryAuth(conn)
             url_base = api_config["URL_BASE"]
 
-            # Obtém o App Access Token
-            ################################Obviamente aqui foi preguiça minha e preciso mudar isso########################################
-            app_access_token = repo_auth.select_app_access_token()
-            if not app_access_token:
-                raise RuntimeError("App Access Token não encontrado no banco.")
+            # Pega um App Access Token válido. Se estiver faltando ou vencido,
+            # o próprio serviço gera outro e grava no banco.
+            app_access_token = AuthService(conn).get_app_access_token()
 
             # IDs do broadcaster e do bot
             #platform_id = "102089057"
 
-            user_id_bot = "1355737213"
+            user_id_bot = twitch["BOT_PLATFORM_ID"]
 
             headers = {
                 "Authorization": f"Bearer {app_access_token['access_token']}",

@@ -107,8 +107,10 @@ class Raffle(commands.Cog):
         embed1 = discord.Embed(title="Autenticação na Twitch", url=f"{auth_urls['twitch']}", description="Clique em **Autenticação na Twitch** para iniciar o processo de autenticação na plataforma.")
         embed1.set_image(url="https://i.imgur.com/1z9lJdj.png")
 
+        embed2 = discord.Embed(title="Autenticação do Bot", url=f"{auth_urls['twitch_bot']}", description="Abra este **logado na Twitch com a conta do bot**. É o que permite o bot falar no chat.")
+
         # Envia os embeds juntos na mesma mensagem
-        await interaction.response.send_message(embeds=[embed, embed1])
+        await interaction.response.send_message(embeds=[embed, embed1, embed2])
 
     @commands.command(name="autenticar", description= "Comando para o viewer se autenticar para o sorteios na plataforma que ele desejar")
     async def autenticar_viewer(self, ctx : commands.Context):

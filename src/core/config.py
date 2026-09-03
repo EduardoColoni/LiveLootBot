@@ -12,7 +12,10 @@ twitch = {
     'CLIENT_SECRET': str(os.getenv('CLIENT_SECRET')),
     'REDIRECT_URI_STREAMER': os.getenv('REDIRECT_URI_STREAMER', 'http://localhost:8000/twitch_callback'),
     'REDIRECT_URI_VIEWER': os.getenv('REDIRECT_URI_VIEWER', 'http://localhost:8000/twitch_callback'),
+    'REDIRECT_URI_BOT': os.getenv('REDIRECT_URI_BOT', f"{os.getenv('URL_BASE', 'http://localhost:8000')}/twitch_callback/bot"),
     'TWITCH_URL' : os.getenv('TWITCH_URL', 'https://id.twitch.tv/oauth2'),
+    # Conta da Twitch que o bot usa para falar no chat (era um id solto no meio do codigo)
+    'BOT_PLATFORM_ID': os.getenv('BOT_PLATFORM_ID', '1355737213'),
 }
 
 connection_options_postgres = {
