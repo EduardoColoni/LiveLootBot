@@ -60,7 +60,7 @@ class RaffleService:
                 if not winner_resolved:
                     # Se ninguém deu claim após 3 tentativas, envia aviso e passa para próximo item
                     print("Nenhum vencedor válido encontrado após 3 tentativas")
-                    self.send_winner_message(viewer, streamer_id, item_name, "not-claim")
+                    await asyncio.to_thread(partial(self.send_winner_message, viewer, streamer_id, item_name, "not-claim"))
 
                     await on_winner_callback(None)
 
@@ -90,7 +90,7 @@ class RaffleService:
         if claim_key:
             redis_repository.delete(claim_key)
 
-        self.send_winner_message(viewer, streamer_id, item_name, "claim")
+        await asyncio.to_thread(partial(self.send_winner_message, viewer, streamer_id, item_name, "claim"))
 
         # Aguarda 60 segundos para o usuário dar claim
         await asyncio.sleep(10)
@@ -99,7 +99,7 @@ class RaffleService:
 
         if user_claim is None:
             await asyncio.sleep(5)
-            self.send_winner_message(viewer, streamer_id, item_name, "resend_claim")
+            await asyncio.to_thread(partial(self.send_winner_message, viewer, streamer_id, item_name, "resend_claim"))
             # Retorna False mas também os dados do item/vencedor
             return False, viewer, streamer_id, item_name
 
@@ -107,7 +107,7 @@ class RaffleService:
         self.update_item(viewer['discord']['user_name'], item[0], item[1])
 
         # Envia mensagem de confirmação de claim
-        self.send_winner_message(viewer, streamer_id, item_name, "winner")
+        await asyncio.to_thread(partial(self.send_winner_message, viewer, streamer_id, item_name, "winner"))
 
         # Chama callback passando vencedor e item
         await on_winner_callback(viewer['discord']['user_name'], item)

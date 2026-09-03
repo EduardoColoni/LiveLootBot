@@ -70,7 +70,7 @@ class TwitchChattersController:
     #     finally:
     #         PostgresPool.release_conn(conn)
 
-    async def send_message(self, platform_id: str, user_name: str, item_name: str, message_control: str):
+    def send_message(self, platform_id: str, user_name: str, item_name: str, message_control: str):
         conn = PostgresPool.get_conn()
 
         print(f"Esse é o conteudo do platform_id dentro da função da api {platform_id}")

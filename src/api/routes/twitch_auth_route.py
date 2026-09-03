@@ -24,7 +24,7 @@ class TwitchAuthController:
         self.router.add_api_route("/twitch_callback/twitch_app_access_token", self.twitch_app_access_token, methods=["GET"])
         self.router.add_api_route("/twitch_callback/event_sub_signature", self.event_sub_signature, methods=["GET"])
 
-    async def twitch_callback_streamer(self, request: Request):
+    def twitch_callback_streamer(self, request: Request):
         conn = PostgresPool.get_conn()
         encoded_state = request.query_params.get("state")
         try:
@@ -71,7 +71,7 @@ class TwitchAuthController:
         finally:
             PostgresPool.release_conn(conn)
 
-    async def twitch_callback_bot(self, request: Request):
+    def twitch_callback_bot(self, request: Request):
         """
         Callback da autorização da conta do BOT.
 
@@ -137,7 +137,7 @@ class TwitchAuthController:
         finally:
             PostgresPool.release_conn(conn)
 
-    async def twitch_callback_viewer(self, request: Request):
+    def twitch_callback_viewer(self, request: Request):
         conn = PostgresPool.get_conn()
         encoded_state = request.query_params.get("state")
         try:
@@ -206,7 +206,7 @@ class TwitchAuthController:
         return user["login"], user["id"], user["display_name"]
 
     @staticmethod
-    async def twitch_app_access_token():
+    def twitch_app_access_token():
         """
         Força a geração de um App Access Token novo.
 
@@ -248,7 +248,7 @@ class TwitchAuthController:
         return None
 
     @staticmethod
-    async def event_sub_signature(platform_id : str):
+    def event_sub_signature(platform_id : str):
         conn = PostgresPool.get_conn()
         try:
             repo_auth = PostgresRepositoryAuth(conn)
