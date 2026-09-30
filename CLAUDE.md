@@ -38,6 +38,10 @@ em vez da raiz. Vale para qualquer script do projeto.
 **Python 3.13.** No 3.14 as versões fixadas no `requirements.txt` não têm wheel e o
 `psycopg2-binary` tenta compilar, falhando por falta do `pg_config`.
 
+O `README.md` tem a instalação completa a partir do clone — cadastro dos apps do Discord e da
+Twitch, conta separada do bot, ngrok, os dois `.env` e a ordem das autenticações. Consulte-o
+antes de supor como algo é configurado.
+
 ## Arquitetura
 
 - **`src/bot/`** — bot do Discord (`discord.py`). Comandos e o laço do sorteio.
@@ -89,8 +93,8 @@ Mensagens da própria conta do bot são descartadas na entrada do webhook.
 
 ## Banco de dados
 
-O banco em uso é o **`live_loot_bot_test`** (ver `DB_NAME` no `.env`). Os outros dois do
-cluster (`_dev` e `_prod`) têm um schema antigo e não são usados.
+O banco é o **`live_loot_bot_test`** (ver `DB_NAME` no `.env`). Os antigos `_dev` e `_prod`,
+que carregavam um schema de uma versão anterior, foram removidos — existe apenas um agora.
 
 **Quase tudo tem `ON DELETE CASCADE` para `streamer(id)`.** Apagar a linha do streamer leva
 junto `streamer_platform` (os dois tokens), `authenticated_users` (todos os viewers),
@@ -179,4 +183,3 @@ discord.py.
   o TCC promete que o criador configura esses valores.
 - As URLs de autorização do streamer e do viewer têm o endereço do ngrok fixo no
   `raffle_service.py`, embora já exista `URL_BASE` no `.env`.
-- O README descreve a arquitetura anterior e arquivos que não existem mais.
