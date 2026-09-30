@@ -12,7 +12,9 @@ e as pendências correspondentes listadas no fim deste arquivo.
 
 Tudo a partir da **raiz do projeto**, com o venv ativo.
 
-Na primeira vez, crie o `PostDocker/.env` a partir do `.env.example` que está lá. As
+Na primeira vez, crie os dois arquivos de configuração a partir dos modelos versionados:
+`src/.env.example` → `src/.env` (aplicação) e `PostDocker/.env.example` → `PostDocker/.env`
+(contêineres). As
 variáveis `POSTGRES_*` precisam bater com `DB_USER`, `DB_PASSWORD` e `DB_NAME` do `src/.env`,
 senão a aplicação não conecta no banco que o contêiner criou.
 

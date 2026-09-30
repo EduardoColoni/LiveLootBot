@@ -161,6 +161,12 @@ São **dois `.env` separados**, em pastas diferentes. Ambos estão no `.gitignor
 
 #### `src/.env` — a aplicação
 
+Há um modelo pronto no repositório, com comentários explicando cada valor:
+
+```bash
+cp src/.env.example src/.env
+```
+
 ```env
 # Discord
 DISCORD_TOKEN=o_token_do_passo_2
