@@ -94,12 +94,9 @@ junto `streamer_platform` (os dois tokens), `authenticated_users` (todos os view
 
 A lógica ponderada do sorteio vive no banco, na função PL/pgSQL `make_raffle(guild_id)`.
 
-Migrações em `migrations/`. **Elas não rodam sozinhas** — são executadas à mão (DBeaver ou
-`psql`). A `remove_kick.sql` remove a tabela e as colunas da Kick, e a ordem dos passos dela
-importa por causa de uma foreign key.
-
-O schema completo ainda não está versionado, então um chat novo não tem como inspecionar as
-tabelas: peça um `pg_dump --schema-only` ou a saída de `\d+` quando precisar dos detalhes.
+O schema está versionado em `migrations/` — ver o `README.md` de lá. O
+`000_schema_inicial.sql` cria o banco inteiro do zero, incluindo as funções `insert_items` e
+`make_raffle`. **As migrações não rodam sozinhas**, são aplicadas à mão (DBeaver ou `psql`).
 
 ## Armadilhas conhecidas
 
@@ -174,5 +171,4 @@ discord.py.
   o TCC promete que o criador configura esses valores.
 - As URLs de autorização do streamer e do viewer têm o endereço do ngrok fixo no
   `raffle_service.py`, embora já exista `URL_BASE` no `.env`.
-- Não há testes automatizados no repositório.
 - O README descreve a arquitetura anterior e arquivos que não existem mais.
