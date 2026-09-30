@@ -13,3 +13,7 @@ __pycache__/
 
 # Ignorar configurações de IDEs (como PyCharm)
 .idea/
+
+# Dumps do banco (contêm hashes de senha)
+*.sql.bak
+schema_all.sql
