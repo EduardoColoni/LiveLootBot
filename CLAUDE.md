@@ -12,9 +12,13 @@ e as pendências correspondentes listadas no fim deste arquivo.
 
 Tudo a partir da **raiz do projeto**, com o venv ativo.
 
+Na primeira vez, crie o `PostDocker/.env` a partir do `.env.example` que está lá. As
+variáveis `POSTGRES_*` precisam bater com `DB_USER`, `DB_PASSWORD` e `DB_NAME` do `src/.env`,
+senão a aplicação não conecta no banco que o contêiner criou.
+
 ```bash
 # 1. Infraestrutura (o docker-compose.yml fica em PostDocker/, não na raiz)
-cd PostDocker && docker compose start && cd ..
+cd PostDocker && docker compose up -d && cd ..
 
 # 2. API
 source .venv/bin/activate
@@ -93,6 +97,10 @@ junto `streamer_platform` (os dois tokens), `authenticated_users` (todos os view
 `raffle_items` e `twitch_eventsub_subscription`. Só o `app_access_token` sobrevive.
 
 A lógica ponderada do sorteio vive no banco, na função PL/pgSQL `make_raffle(guild_id)`.
+
+O `docker compose up` monta `migrations/000_schema_inicial.sql` em
+`/docker-entrypoint-initdb.d/`, então **um volume novo já nasce com o schema aplicado**.
+Só acontece na primeira criação do volume; para refazer, `docker compose down -v`.
 
 O schema está versionado em `migrations/` — ver o `README.md` de lá. O
 `000_schema_inicial.sql` cria o banco inteiro do zero, incluindo as funções `insert_items` e
