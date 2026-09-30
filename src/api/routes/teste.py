@@ -19,7 +19,18 @@ from src.database.postgres.connection.postgres_connection import PostgresPool
 
 # response = requests.get(f"{url_base}/get_chatters/{46736025}")
 url_base = api_config["URL_BASE"]
-response = requests.post(f"{url_base}/send_message/{138603338}/kinoyu_")
+# response = requests.post(f"{url_base}/send_message/{138603338}/kinoyu_")
+params_message = {
+            "platform_id": "68332388",
+            "user_name": "KinoYu",
+            "item_name": "teste",
+            "message_control" : "claim"
+        }
+
+response = requests.post(f"{url_base}/twitch_chatters/send_message", params=params_message)
+
 
 print(response.status_code)
 print(response.text)
+
+

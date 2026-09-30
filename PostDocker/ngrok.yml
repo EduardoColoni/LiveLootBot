@@ -1,0 +1,12 @@
+version: 2
+
+# O authtoken NÃO fica aqui. Ele vem da variável NGROK_AUTHTOKEN, que o
+# docker-compose.yml preenche a partir de NGROK_TOKEN no .env desta pasta.
+
+tunnels:
+  fastapi:
+    proto: http
+    # A API roda na máquina, não em contêiner: host.docker.internal aponta para ela
+    # (ver extra_hosts no docker-compose.yml). O uvicorn precisa subir com --host 0.0.0.0.
+    addr: host.docker.internal:8000
+    hostname: remarkably-knowing-serval.ngrok-free.app

@@ -52,7 +52,7 @@ class PostgresRepositoryRaffle:
     def update_item(self, winner_name: str, item_id: int, raffle_id: int):
         try:
             with self.conn.cursor() as cur:
-                cur.execute("UPDATE raffle_items SET winner = %s, update_at = NOW() WHERE id = %s AND raffle_id = %s;", (winner_name, item_id, raffle_id,))
+                cur.execute("UPDATE raffle_items SET winner = %s, updated_at = NOW() WHERE id = %s AND raffle_id = %s;", (winner_name, item_id, raffle_id,))
             self.conn.commit()
 
         except Exception as e:
@@ -81,18 +81,6 @@ class PostgresRepositoryRaffle:
             self.conn.rollback()
             raise RuntimeError(f"Erro ao pegar o streamer id: {e}")
 
-    def get_platform_id(self, guild_id: str):
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute("SELECT streamer_id FROM streamer WHERE guild_id = %s", (guild_id,))
-                platform_id = cur.fetchone()[0]
-                return int(platform_id) if platform_id else 0
-
-        except Exception as e:
-            self.conn.rollback()
-            raise RuntimeError(f"Erro ao pegar o streamer id: {e}")
-
-
     #Atualmente não usada em lugar algum, ainda estou pensando se tiro ela ou não
     def verify_item_list(self, raffle_id: int):
         try:
@@ -103,3 +91,74 @@ class PostgresRepositoryRaffle:
         except Exception as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to verify item: {e}")
+
+    def select_streamer_platforms(self, streamer_id: int):
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT sp.platform_name, sp.platform_id, sp.token
+                    FROM streamer_platform sp
+                    JOIN streamer s ON s.id = sp.streamer_id
+                    WHERE s.id = %s
+                    """,
+                    (streamer_id,)
+                )
+                rows = cur.fetchall()
+
+                if not rows:
+                    return None
+
+                # transforma em dicionário com chave = platform_name
+                result = {
+                    row[0]: {
+                        "platform_id": row[1],
+                        "token": row[2]
+                    }
+                    for row in rows
+                }
+                return result
+
+        except Exception as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Erro ao buscar plataformas do streamer: {e}")
+
+    def raffle_viewer(self, streamer_id : int):
+        try:
+            with self.conn.cursor() as cur:
+                # Colunas nomeadas (e não SELECT *) para o resultado não depender da ordem
+                # das colunas da tabela. Para uma plataforma nova, basta adicionar as
+                # colunas dela aqui e no dicionário abaixo.
+                cur.execute(
+                    """
+                    SELECT discord_id, discord_user_name, twitch_id, twitch_user_name
+                    FROM authenticated_users
+                    WHERE streamer_id = %s
+                    ORDER BY RANDOM()
+                    LIMIT 1;
+                    """,
+                    (streamer_id,)
+                )
+                viewer = cur.fetchall()
+
+                if not viewer:
+                    return None
+
+                row = viewer[0]
+
+                result = {
+                    "discord": {
+                        "id": row[0],
+                        "user_name": row[1]
+                    },
+                    "twitch": {
+                        "id": row[2],
+                        "user_name": row[3]
+                    }
+                }
+
+                return result
+
+        except Exception as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Erro ao buscar plataformas do streamer: {e}")
