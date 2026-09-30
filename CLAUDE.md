@@ -3,6 +3,11 @@
 Sistema de sorteios automáticos durante transmissões ao vivo, integrando Discord e Twitch.
 Projeto de TCC. Código, comentários e mensagens de commit em português.
 
+A monografia descreve, em vários pontos, uma arquitetura **anterior** à atual — em especial o
+fluxo de escolha do ganhador, que consultava a lista de espectadores do chat da Twitch. Ao
+mexer no código, não tome o texto do TCC como especificação: as divergências estão mapeadas
+e as pendências correspondentes listadas no fim deste arquivo.
+
 ## Como rodar
 
 Tudo a partir da **raiz do projeto**, com o venv ativo.
@@ -38,6 +43,14 @@ em vez da raiz. Vale para qualquer script do projeto.
 
 Comandos do Discord: `/registrar_itens`, `/iniciar_sorteio`, `/parar`,
 `/autenticar_plataformas` (slash) e `!autenticar` (prefixo, para o viewer).
+
+O `!autenticar` é o único comando por prefixo e **depende do intent privilegiado
+Message Content**, habilitado no Developer Portal do Discord. Se ele for desligado, o
+comando para de funcionar em silêncio — sem erro e sem log. Os comandos slash não têm
+essa dependência.
+
+O `/registrar_itens` usa um **Modal** do discord.py (formulário na interface) em vez de
+argumentos. É o padrão a seguir para qualquer comando novo que peça vários campos.
 
 ## Os três tokens da Twitch
 
@@ -81,7 +94,12 @@ junto `streamer_platform` (os dois tokens), `authenticated_users` (todos os view
 
 A lógica ponderada do sorteio vive no banco, na função PL/pgSQL `make_raffle(guild_id)`.
 
-Migrações em `migrations/`. O schema completo ainda não está versionado.
+Migrações em `migrations/`. **Elas não rodam sozinhas** — são executadas à mão (DBeaver ou
+`psql`). A `remove_kick.sql` remove a tabela e as colunas da Kick, e a ordem dos passos dela
+importa por causa de uma foreign key.
+
+O schema completo ainda não está versionado, então um chat novo não tem como inspecionar as
+tabelas: peça um `pg_dump --schema-only` ou a saída de `\d+` quando precisar dos detalhes.
 
 ## Armadilhas conhecidas
 
@@ -98,6 +116,30 @@ Migrações em `migrations/`. O schema completo ainda não está versionado.
   packages), mas é um erro.
 - `src/api/routes/teste.py` e `src/bot/services/test.py` são rascunhos; o primeiro dispara
   uma requisição HTTP ao ser importado.
+
+## Como validar mudanças
+
+Não há testes automatizados no repositório, mas **dá para validar de verdade sem depender do
+ambiente do autor**: o contêiner tem PostgreSQL 16 (`/usr/lib/postgresql/16/bin`) e
+`redis-server` disponíveis. O procedimento usado até aqui:
+
+1. Subir um cluster temporário (`initdb` + `pg_ctl` numa porta alternativa) e um `redis-server`
+2. Carregar o schema a partir de um dump do banco real
+3. Popular com dados de exemplo e exercitar o código com as variáveis de ambiente apontando
+   para essa instância
+4. Para as rotas, subir a API real com `uvicorn` numa thread e bater nela com requisições —
+   inclusive concorrentes, para medir bloqueio
+5. Para o webhook, montar a assinatura HMAC de verdade em vez de contornar a validação
+
+Foi assim que se mediu o ganho de concorrência (3,04s → 1,04s em três requisições simultâneas)
+e que se reproduziu a queda de conexões do pool. Vale repetir esse padrão em vez de confiar
+em inspeção de código.
+
+## Scripts
+
+`scripts/token_bot.py` monta a URL de autorização da conta do bot e troca o code pelo token,
+imprimindo o INSERT pronto. **Está obsoleto** desde que a rota `/twitch_callback/bot` passou a
+fazer isso pelo comando do Discord. Pode ser removido.
 
 ## Branches
 
