@@ -410,8 +410,42 @@ banco. O schema completo, incluindo as funções, está em `migrations/` — vej
 ## Solução de problemas
 
 **`ERR_NGROK_8012` ao abrir a URL pública**
-O túnel não alcança a API. Verifique se o uvicorn subiu com `--host 0.0.0.0` e se o serviço
-`ngrok` do compose tem a entrada `extra_hosts` (necessária no Docker do Linux).
+O tráfego chegou ao agente do ngrok, mas o agente não alcançou a API. A linha de erro na
+própria página diz qual dos três casos é:
+
+- `connection refused` — a API não está no ar, ou subiu sem `--host 0.0.0.0` e por isso só
+  escuta em `127.0.0.1`, onde o contêiner não a enxerga. Confirme com `ss -tlnp | grep 8000`:
+  precisa aparecer `0.0.0.0:8000`.
+- `no such host` — falta a entrada `extra_hosts` no serviço `ngrok` do compose. No Docker do
+  Linux o nome `host.docker.internal` não existe por conta própria.
+- `connection timed out` — firewall do sistema descartando o pacote. Veja o item seguinte.
+
+**`connection timed out` no `ERR_NGROK_8012` — firewall do sistema**
+Distribuições que vêm com `ufw` ou `firewalld` ativos descartam, por padrão, o tráfego que
+chega das redes do Docker para a máquina. É só o timeout acima, sem nenhum log na API.
+
+Para confirmar, com a API rodando:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://172.17.0.1:8000/docs
+```
+
+Se este comando responde `200` mas o contêiner continua dando timeout, é o firewall: o
+tráfego originado na máquina passa pela interface `lo`, que é liberada, e o do contêiner não.
+
+```bash
+# ufw (Arch, CachyOS, Ubuntu)
+sudo ufw allow from 172.16.0.0/12 to any port 8000 proto tcp
+
+# firewalld (Fedora)
+sudo firewall-cmd --permanent --zone=trusted --add-source=172.16.0.0/12
+sudo firewall-cmd --reload
+```
+
+Libere pela **faixa de IP**, não pela interface. O compose cria uma rede própria
+(`app-network`), que no host aparece como `br-<id>` e **não** como `docker0` — uma regra
+presa à `docker0` não casa com nada, e o nome da `br-` muda a cada `docker compose down`.
+A faixa `172.16.0.0/12` é privada e cobre todas as bridges do Docker.
 
 **`redirect_mismatch` ao autorizar na Twitch**
 A URL de redirecionamento não está cadastrada no app da Twitch, ou está diferente. Confira os
