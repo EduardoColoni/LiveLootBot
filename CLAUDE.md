@@ -121,6 +121,13 @@ O schema está versionado em `migrations/` — ver o `README.md` de lá. O
 - **O ngrok roda em contêiner.** No Linux precisa de
   `extra_hosts: - "host.docker.internal:host-gateway"` no serviço, e o uvicorn tem que subir
   com `--host 0.0.0.0` — senão o túnel não alcança a API (`ERR_NGROK_8012`).
+- **O firewall do sistema é a outra causa do `ERR_NGROK_8012`**, e a mais difícil de
+  enxergar: `ufw` ou `firewalld` ativos descartam o tráfego vindo das redes do Docker, sem
+  deixar log nenhum na API. A mensagem do ngrok distingue os casos — `connection refused` é
+  API fora do ar, `no such host` é o `extra_hosts`, `connection timed out` é firewall. A
+  liberação vai pela faixa `172.16.0.0/12`, não pela interface: o compose cria a rede
+  `app-network`, que no host é uma `br-<id>` e não a `docker0`, e esse nome muda a cada
+  `docker compose down`. Os comandos estão no `README.md`.
 - **Os redirect URIs precisam estar cadastrados** no app da Twitch (`/streamer`, `/viewer`,
   `/bot`), senão o OAuth devolve `redirect_mismatch`.
 - **Os arquivos `__init__` estão grafados `__inity__.py`.** Funciona por acaso (namespace
