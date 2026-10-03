@@ -16,6 +16,9 @@ twitch = {
     'TWITCH_URL' : os.getenv('TWITCH_URL', 'https://id.twitch.tv/oauth2'),
     # Conta da Twitch que o bot usa para falar no chat (era um id solto no meio do codigo)
     'BOT_PLATFORM_ID': os.getenv('BOT_PLATFORM_ID', '1355737213'),
+    # Segredo do HMAC das mensagens do EventSub. Sem valor padrão de propósito:
+    # o antigo ficou exposto no repositório e não pode voltar a ser usado.
+    'WEBHOOK_SECRET': os.getenv('TWITCH_WEBHOOK_SECRET'),
 }
 
 connection_options_postgres = {
@@ -34,4 +37,10 @@ connection_options_redis = {
 
 api_config = {
     'URL_BASE': os.getenv('URL_BASE', 'localhost')
+}
+
+# Chave Fernet que cifra os tokens antes de irem para o banco.
+# Sem valor padrão: sem ela a aplicação não lê nem grava tokens.
+crypto_config = {
+    'TOKEN_ENCRYPTION_KEY': os.getenv('TOKEN_ENCRYPTION_KEY')
 }

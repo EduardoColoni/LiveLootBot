@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Request, Header
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 import hmac
 import hashlib
 import json
 
 from src.core.config import twitch
+from src.core.criptografia import get_webhook_secret
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.redis.redis_repository import RedisRepository
 
@@ -29,7 +30,7 @@ class TwitchEventSubController:
         twitch_message_type: str = Header(..., alias="Twitch-Eventsub-Message-Type"),
     ):
         redis_repository = RedisRepository(self.redis_conn)
-        WEBHOOK_SECRET = "umSegredoForteAqui123"  # ideal: colocar em .env
+        WEBHOOK_SECRET = get_webhook_secret()
 
         # Lê o corpo da requisição
         body = await request.body()
@@ -43,7 +44,10 @@ class TwitchEventSubController:
 
         expected_signature = f"sha256={computed_hmac}"
         if not hmac.compare_digest(expected_signature, twitch_signature):
-            return {"error": "Invalid signature"}
+            # 403, e não 200: assim a Twitch registra a falha de entrega e o
+            # log da API mostra que a assinatura não bateu.
+            print(f"[EventSub] Assinatura inválida na mensagem {twitch_message_id}")
+            return Response(status_code=403)
 
         # 🔄 Caso seja o challenge (verificação inicial)
         if twitch_message_type == "webhook_callback_verification":

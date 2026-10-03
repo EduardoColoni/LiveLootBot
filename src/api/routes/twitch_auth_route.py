@@ -6,6 +6,7 @@ import json, base64
 from src.api.services.auth_service import AuthService
 from src.core.config import twitch
 from src.core.config import api_config
+from src.core.criptografia import get_webhook_secret, impressao_digital_segredo
 from src.database.postgres.postgres_repository_auth import PostgresRepositoryAuth
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.redis.redis_repository import RedisRepository
@@ -248,6 +249,20 @@ class TwitchAuthController:
         return None
 
     @staticmethod
+    def delete_eventsub_subscription(headers: dict, subscription_id: str):
+        """Apaga uma inscrição na Twitch. Se ela já não existir (404), não há o que fazer."""
+        response = requests.delete(
+            "https://api.twitch.tv/helix/eventsub/subscriptions",
+            headers=headers,
+            params={"id": subscription_id},
+            timeout=10
+        )
+        if response.status_code not in (204, 404):
+            raise RuntimeError(
+                f"Erro ao apagar a inscrição {subscription_id} na Twitch: {response.status_code} - {response.text}"
+            )
+
+    @staticmethod
     def event_sub_signature(platform_id : str):
         conn = PostgresPool.get_conn()
         try:
@@ -262,6 +277,11 @@ class TwitchAuthController:
             #platform_id = "102089057"
 
             user_id_bot = twitch["BOT_PLATFORM_ID"]
+
+            # O segredo vem do .env. No banco só fica a impressão digital dele,
+            # que diz com qual segredo cada inscrição foi criada.
+            webhook_secret = get_webhook_secret()
+            fingerprint = impressao_digital_segredo(webhook_secret)
 
             headers = {
                 "Authorization": f"Bearer {app_access_token['access_token']}",
@@ -279,15 +299,18 @@ class TwitchAuthController:
                 "transport": {
                     "method": "webhook",
                     "callback": f"{url_base}/twitch/eventsub",
-                    "secret": "umSegredoForteAqui123"
+                    "secret": webhook_secret
                 }
             }
 
-            response = requests.post(
-                "https://api.twitch.tv/helix/eventsub/subscriptions",
-                headers=headers,
-                json=body
-            )
+            def criar_inscricao():
+                return requests.post(
+                    "https://api.twitch.tv/helix/eventsub/subscriptions",
+                    headers=headers,
+                    json=body
+                )
+
+            response = criar_inscricao()
 
             if response.status_code == 202:
                 sub = response.json()["data"][0]
@@ -310,7 +333,23 @@ class TwitchAuthController:
                         f"e não para {url_base}/twitch/eventsub. Apague ela na Twitch e rode de novo."
                     )
 
-                print(f"[INFO] Inscrição já existia na Twitch, reaproveitando: {sub['id']}")
+                # A Twitch assina cada evento com o segredo dado na criação da
+                # inscrição, e não deixa trocá-lo depois. Só dá para reaproveitar
+                # se o banco confirmar que ela foi criada com o segredo atual;
+                # senão (segredo trocado, ou banco apagado) é apagar e criar de novo.
+                if repo_auth.select_webhook_fingerprint(sub["id"]) == fingerprint:
+                    print(f"[INFO] Inscrição já existia na Twitch, reaproveitando: {sub['id']}")
+                else:
+                    print(f"[INFO] Inscrição {sub['id']} foi criada com outro segredo (ou o banco não a conhece). Recriando...")
+                    TwitchAuthController.delete_eventsub_subscription(headers, sub["id"])
+                    repo_auth.delete_eventsub_subscription(sub["id"])
+
+                    response = criar_inscricao()
+                    if response.status_code != 202:
+                        raise RuntimeError(
+                            f"Erro ao recriar a EventSub subscription: {response.status_code} - {response.text}"
+                        )
+                    sub = response.json()["data"][0]
 
             else:
                 raise RuntimeError(f"Erro ao criar EventSub subscription: {response.status_code} - {response.text}")
@@ -338,7 +377,7 @@ class TwitchAuthController:
                 status=status_db,
                 type_=sub["type"],
                 transport_callback=sub["transport"]["callback"],
-                webhook_secret="umSegredoForteAqui123",
+                webhook_secret=fingerprint,
                 expires_at=str(datetime.fromisoformat(expires_at.replace("Z", "+00:00")))
             )
 

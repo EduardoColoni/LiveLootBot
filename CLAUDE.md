@@ -77,6 +77,13 @@ A conta do bot na Twitch é **separada** da conta do streamer; seu id está em
 depois de alguém autorizar no navegador, não há como gerá-los programaticamente.
 O terceiro é totalmente automático (`AuthService.get_app_access_token`).
 
+**Os tokens são gravados cifrados** (Fernet, `src/core/criptografia.py`), com a chave
+`TOKEN_ENCRYPTION_KEY` do `src/.env`. A cifragem fica toda em `PostgresRepositoryAuth`: quem
+chama continua entregando e recebendo o dicionário do token. No banco fica o envelope
+`{"alg": "fernet", "kid": 1, "ct": ...}`. Um token sem envelope (texto puro) é **recusado**
+na leitura com `TokenSemCriptografiaError`, nunca usado; o App Access Token, por ser
+automático, é regerado nesse caso. O `expires_at` continua em coluna própria e em claro.
+
 ## Como o `!claim` funciona
 
 1. O sorteio escolhe um viewer aleatório de `authenticated_users` (**não** consulta a lista
@@ -92,6 +99,12 @@ id do canal e o sorteio usava o id do viewer — coincidia só quando o viewer e
 canal. Os dois ids são necessários: pode haver mais de uma live simultânea com o mesmo viewer.
 
 Mensagens da própria conta do bot são descartadas na entrada do webhook.
+
+O segredo do HMAC vem de `TWITCH_WEBHOOK_SECRET` no `src/.env`. A Twitch assina com o segredo
+dado na **criação** da inscrição e não deixa trocá-lo depois; por isso a coluna
+`webhook_secret` guarda a impressão digital do segredo (`sha256:...`) e, no 409, a inscrição
+só é reaproveitada se a impressão digital bater, senão é apagada e recriada. Assinatura
+inválida devolve 403.
 
 ## Banco de dados
 
@@ -157,7 +170,8 @@ em inspeção de código.
 
 `scripts/token_bot.py` monta a URL de autorização da conta do bot e troca o code pelo token,
 imprimindo o INSERT pronto. **Está obsoleto** desde que a rota `/twitch_callback/bot` passou a
-fazer isso pelo comando do Discord. Pode ser removido.
+fazer isso pelo comando do Discord, e o INSERT que ele gera grava o token em texto puro, que
+agora é recusado na leitura. Pode ser removido.
 
 ## Branches
 
@@ -186,8 +200,6 @@ discord.py.
 - `RaffleService.raffle_viewer` devolve um valor quando falha e dois quando dá certo;
   `/iniciar_sorteio` estoura com `cannot unpack non-iterable NoneType` se não houver
   viewer autenticado.
-- Os tokens são gravados em texto legível; o TCC afirma que são criptografados.
-- O segredo do webhook (`umSegredoForteAqui123`) está fixo no código, em três lugares.
 - Intervalo entre rodadas, janela do claim e número de tentativas estão fixos no código;
   o TCC promete que o criador configura esses valores.
 - As URLs de autorização do streamer e do viewer têm o endereço do ngrok fixo no

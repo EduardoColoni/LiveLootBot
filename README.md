@@ -178,6 +178,10 @@ TWITCH_URL=https://id.twitch.tv/oauth2
 BOT_PLATFORM_ID=o_id_numerico_do_passo_4
 REDIRECT_URI_STREAMER=https://SEU-DOMINIO.ngrok-free.app/twitch_callback/streamer
 REDIRECT_URI_VIEWER=https://SEU-DOMINIO.ngrok-free.app/twitch_callback/viewer
+TWITCH_WEBHOOK_SECRET=um_valor_aleatorio
+
+# Criptografia dos tokens
+TOKEN_ENCRYPTION_KEY=uma_chave_fernet
 
 # Banco de dados
 DB_HOST=localhost
@@ -197,6 +201,17 @@ URL_BASE=https://SEU-DOMINIO.ngrok-free.app
 
 > `REDIRECT_URI_BOT` é opcional: se não for definida, é derivada automaticamente de
 > `URL_BASE`. O mesmo vale para `BOT_PLATFORM_ID`, que tem um valor padrão no código.
+
+Os dois valores secretos são gerados por você, não vêm de nenhum painel:
+
+```bash
+source .venv/bin/activate
+python -c "import secrets; print(secrets.token_hex(32))"                                 # TWITCH_WEBHOOK_SECRET
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" # TOKEN_ENCRYPTION_KEY
+```
+
+> **Guarde uma cópia da `TOKEN_ENCRYPTION_KEY`.** Os tokens no banco só podem ser lidos com
+> ela. Se for perdida ou trocada, é preciso refazer as autenticações do *Primeiro uso*.
 
 #### `PostDocker/.env` — os contêineres
 
@@ -398,6 +413,13 @@ Seis tabelas, todas ligadas a `streamer` com `ON DELETE CASCADE`:
 | `twitch_eventsub_subscription` | Inscrições de eventos do chat |
 | `app_access_token` | Token da aplicação, renovado automaticamente |
 
+Os tokens (`streamer_platform.token` e `app_access_token.token_data`) são gravados
+**cifrados** com Fernet (AES-128-CBC + HMAC-SHA256), com a chave `TOKEN_ENCRYPTION_KEY` do
+`src/.env`. No banco aparece só um envelope `{"alg": "fernet", "kid": 1, "ct": "gAAAA..."}`.
+A coluna `expires_at` continua em claro, para a validade ser consultada sem decifrar. Na
+coluna `twitch_eventsub_subscription.webhook_secret` fica apenas a impressão digital do
+segredo (`sha256:...`), nunca o segredo em si.
+
 > **Cuidado com o cascade:** apagar a linha do `streamer` remove junto os dois tokens, todos
 > os espectadores vinculados, os itens e as inscrições.
 
@@ -457,8 +479,21 @@ Falta a etapa 2 do primeiro uso. Rode `/autenticar_plataformas` e clique em
 
 **`subscription already exists` (HTTP 409) ao criar a inscrição**
 A inscrição existe na Twitch mas não no banco — acontece ao recriar o banco. O sistema trata
-isso sozinho: ele localiza a inscrição existente e a registra. Se a mensagem disser que o
-*callback* é diferente, apague a inscrição antiga pela API da Twitch e rode de novo.
+isso sozinho: se o banco confirma que ela foi criada com o `TWITCH_WEBHOOK_SECRET` atual, ela
+é reaproveitada; senão, é apagada e criada de novo com o segredo atual. Se a mensagem disser
+que o *callback* é diferente, apague a inscrição antiga pela API da Twitch e rode de novo.
+
+**`!claim` não é reconhecido e o log da API mostra `Assinatura inválida`**
+A inscrição foi criada com um segredo diferente do `TWITCH_WEBHOOK_SECRET` atual. Rode de
+novo a etapa 3 do *Primeiro uso*: ela recria a inscrição com o segredo certo.
+
+**`... está gravado sem criptografia. Refaça a autenticação`**
+O banco tem um token de antes da criptografia. Refaça a autenticação indicada (ou recomece
+do zero, abaixo). O App Access Token não precisa disso: é regerado sozinho.
+
+**`Não foi possível decifrar o token`**
+A `TOKEN_ENCRYPTION_KEY` do `src/.env` não é a que cifrou os tokens do banco. Volte a chave
+antiga ou refaça as autenticações.
 
 **`ModuleNotFoundError: No module named 'src'`**
 O comando foi executado de dentro de uma subpasta, ou pelo caminho do arquivo. Rode da raiz

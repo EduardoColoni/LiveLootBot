@@ -1,6 +1,7 @@
 import requests
 
 from src.core.config import twitch
+from src.core.criptografia import TokenSemCriptografiaError
 from src.database.redis.redis_repository import RedisRepository
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.postgres.postgres_repository_auth import PostgresRepositoryAuth
@@ -53,7 +54,12 @@ class AuthService:
         esses não têm como ser gerados automaticamente — no máximo renovados
         pelo twitch_refresh_token abaixo.
         """
-        token_data = self.repo_auth.select_valid_app_access_token()
+        try:
+            token_data = self.repo_auth.select_valid_app_access_token()
+        except TokenSemCriptografiaError:
+            # Sobra de antes da criptografia. Como este token é automático,
+            # basta gerar outro (já cifrado) em vez de usar o antigo.
+            token_data = None
 
         if token_data and "access_token" in token_data:
             return token_data
@@ -65,15 +71,11 @@ class AuthService:
         try:
             print(f"teste para ver o platform_id do refresh token twitch: {self.platform_id}")
             token_data = self.repo_auth.select_token_by_platform(self.platform_id)
-            print(f"teste para ver o token do refresh token twitch:{token_data}")
             if not token_data:
                 # Em vez de retornar uma resposta HTTP, levante um erro para ser tratado
                 raise RuntimeError("Token não encontrado twitch.")
-
-            print(f"teste para ver o token do refresh token twitch:{token_data}")
             refresh_token = token_data.get("refresh_token")
 
-            print(f"teste para ver o refresh do refresh token twitch: {refresh_token}")
             if not refresh_token:
                 raise RuntimeError("Refresh token ausente twitch.")
 

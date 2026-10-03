@@ -163,7 +163,7 @@ COMMENT ON COLUMN public.app_access_token.id IS 'Identificador único do registr
 -- Name: COLUMN app_access_token.token_data; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.app_access_token.token_data IS 'Dados do App Access Token retornados pela Twitch (JSON).';
+COMMENT ON COLUMN public.app_access_token.token_data IS 'Dados do App Access Token retornados pela Twitch, cifrados com Fernet pela aplicação (envelope JSON: alg, kid, ct).';
 
 
 --
@@ -523,7 +523,7 @@ COMMENT ON COLUMN public.streamer_platform.platform_name IS 'Nome da plataforma 
 -- Name: COLUMN streamer_platform.token; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.streamer_platform.token IS 'Token de acesso para a plataforma, armazenado como JSONB.';
+COMMENT ON COLUMN public.streamer_platform.token IS 'Token de acesso para a plataforma, cifrado com Fernet pela aplicação (envelope JSON: alg, kid, ct).';
 
 
 --
@@ -637,7 +637,7 @@ COMMENT ON COLUMN public.twitch_eventsub_subscription.transport_callback IS 'URL
 -- Name: COLUMN twitch_eventsub_subscription.webhook_secret; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.twitch_eventsub_subscription.webhook_secret IS 'Secret usado para validar o HMAC do webhook.';
+COMMENT ON COLUMN public.twitch_eventsub_subscription.webhook_secret IS 'Impressão digital (sha256:...) do segredo usado na criação da inscrição. Nunca o segredo em si.';
 
 
 --
