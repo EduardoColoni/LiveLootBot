@@ -68,6 +68,8 @@ os.environ.update({
     "CLIENT_SECRET": "client-secret-dos-testes",
     "TWITCH_URL": "https://id.twitch.tv/oauth2",
     "URL_BASE": URL_BASE,
+    "REDIRECT_URI_STREAMER": f"{URL_BASE}/twitch_callback/streamer",
+    "REDIRECT_URI_VIEWER": f"{URL_BASE}/twitch_callback/viewer",
     "REDIRECT_URI_BOT": f"{URL_BASE}/twitch_callback/bot",
 })
 
@@ -268,6 +270,7 @@ class TwitchFalsa:
         self.inscricoes = {}       # id -> {"secret", "callback", "condition", "verificada"}
         self.chamadas = []         # (método, url resumida, status)
         self.mensagens = []        # corpos enviados para /helix/chat/messages
+        self.trocas_de_code = []   # dados enviados ao /oauth2/token com grant_type=authorization_code
         self.atraso_mensagem = 0.0
 
     # -- requests.* -------------------------------------------------------
@@ -311,6 +314,7 @@ class TwitchFalsa:
         if tipo == "client_credentials":
             return RespostaFalsa(200, {"access_token": f"app-{uuid.uuid4().hex[:12]}", "expires_in": 5000000, "token_type": "bearer"})
         if tipo == "authorization_code":
+            self.trocas_de_code.append(dados)
             conta = self.contas.get(dados["code"])
             if not conta:
                 return RespostaFalsa(400, {"message": "Invalid authorization code"})

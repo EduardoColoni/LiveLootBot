@@ -241,20 +241,14 @@ class RaffleService:
         state_json = json.dumps(state_dict)
         encoded_state = urllib.parse.quote_plus(base64.b64encode(state_json.encode()).decode())
 
-        twitch_auth_url = (
-            twitch["TWITCH_URL"] + "/authorize?"
-            "response_type=code&"
-            f"client_id={twitch["CLIENT_ID"]}&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
-            "scope=chat:edit+chat:read+moderator:read:chatters+user:write:chat&"
-            f"state={encoded_state}"
-        )
-
+        # O redirect_uri vem do .env: é o mesmo que o callback usa ao trocar o code
+        # pelo token (o OAuth exige os dois iguais) e precisa estar cadastrado no
+        # app da Twitch, senão ela recusa com redirect_mismatch.
         twitch_auth_url_streamer = (
             twitch["TWITCH_URL"] + "/authorize?"
             "response_type=code&"
             f"client_id={twitch['CLIENT_ID']}&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
+            f"redirect_uri={urllib.parse.quote_plus(twitch['REDIRECT_URI_STREAMER'])}&"
             "scope=channel:bot+moderator:read:chatters&"
             f"state={encoded_state}"
         )
@@ -287,8 +281,8 @@ class RaffleService:
         twitch_auth_url = (
             twitch["TWITCH_URL"] + "/authorize?"
             "response_type=code&"
-            f"client_id={twitch["CLIENT_ID"]}&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fviewer&"
+            f"client_id={twitch['CLIENT_ID']}&"
+            f"redirect_uri={urllib.parse.quote_plus(twitch['REDIRECT_URI_VIEWER'])}&"
             "scope=user:read:email&"
             f"state={encoded_state}"
         )

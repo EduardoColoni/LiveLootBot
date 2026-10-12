@@ -142,7 +142,9 @@ O schema está versionado em `migrations/` — ver o `README.md` de lá. O
   `app-network`, que no host é uma `br-<id>` e não a `docker0`, e esse nome muda a cada
   `docker compose down`. Os comandos estão no `README.md`.
 - **Os redirect URIs precisam estar cadastrados** no app da Twitch (`/streamer`, `/viewer`,
-  `/bot`), senão o OAuth devolve `redirect_mismatch`.
+  `/bot`), senão o OAuth devolve `redirect_mismatch`. Os links que o bot manda no Discord e
+  as trocas de code nos callbacks usam os três `REDIRECT_URI_*` do `.env`; nenhum endereço
+  fica no código.
 
 ## Como validar mudanças
 
@@ -163,7 +165,7 @@ ser trocados com `TEST_DB_NAME` e `TEST_REDIS_DB`.
 
 Cobre: criptografia dos tokens, webhook (HMAC, 403, claim, mensagem do bot), simetria da
 chave do claim entre webhook e sorteio, os casos do 409 do EventSub, callbacks de OAuth do
-streamer e do bot, renovação do token no envio de mensagem, pool sob queda de conexões e
+streamer e do bot, `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
 concorrência (três envios de 1s terminam em ~1s, não em 3s). **Não cobre** o bot do
 Discord nem o laço do sorteio.
 
@@ -202,5 +204,3 @@ discord.py.
   viewer autenticado.
 - Intervalo entre rodadas, janela do claim e número de tentativas estão fixos no código;
   o TCC promete que o criador configura esses valores.
-- As URLs de autorização do streamer e do viewer têm o endereço do ngrok fixo no
-  `raffle_service.py`, embora já exista `URL_BASE` no `.env`.

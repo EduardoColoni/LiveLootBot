@@ -161,7 +161,7 @@ class TwitchAuthController:
                 "client_secret": twitch["CLIENT_SECRET"],
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": twitch["REDIRECT_URI_STREAMER"]
+                "redirect_uri": twitch["REDIRECT_URI_VIEWER"]  # o mesmo do link do !autenticar
             }
 
             response = requests.post(twitch["TWITCH_URL"] + "/token", data=data, timeout=10)
