@@ -143,35 +143,35 @@ O schema está versionado em `migrations/` — ver o `README.md` de lá. O
   `docker compose down`. Os comandos estão no `README.md`.
 - **Os redirect URIs precisam estar cadastrados** no app da Twitch (`/streamer`, `/viewer`,
   `/bot`), senão o OAuth devolve `redirect_mismatch`.
-- **Os arquivos `__init__` estão grafados `__inity__.py`.** Funciona por acaso (namespace
-  packages), mas é um erro.
-- `src/api/routes/teste.py` e `src/bot/services/test.py` são rascunhos; o primeiro dispara
-  uma requisição HTTP ao ser importado.
 
 ## Como validar mudanças
 
-Não há testes automatizados no repositório, mas **dá para validar de verdade sem depender do
-ambiente do autor**: o contêiner tem PostgreSQL 16 (`/usr/lib/postgresql/16/bin`) e
-`redis-server` disponíveis. O procedimento usado até aqui:
+Há uma suíte em `tests/` (pytest) que roda contra **PostgreSQL e Redis de verdade**, sem
+simular o banco. Só a Twitch é simulada (`TwitchFalsa`, no `conftest.py`); a API sobe com
+`uvicorn` numa thread e as requisições são HTTP de verdade, com assinatura HMAC real no
+webhook.
 
-1. Subir um cluster temporário (`initdb` + `pg_ctl` numa porta alternativa) e um `redis-server`
-2. Carregar o schema a partir de um dump do banco real
-3. Popular com dados de exemplo e exercitar o código com as variáveis de ambiente apontando
-   para essa instância
-4. Para as rotas, subir a API real com `uvicorn` numa thread e bater nela com requisições —
-   inclusive concorrentes, para medir bloqueio
-5. Para o webhook, montar a assinatura HMAC de verdade em vez de contornar a validação
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -v
+```
 
-Foi assim que se mediu o ganho de concorrência (3,04s → 1,04s em três requisições simultâneas)
-e que se reproduziu a queda de conexões do pool. Vale repetir esse padrão em vez de confiar
-em inspeção de código.
+Não encosta nos dados reais: usa o banco `live_loot_bot_pytest` (recriado do zero a cada
+execução a partir do `000_schema_inicial.sql`) e o banco 15 do Redis, com chave de
+criptografia e segredo de webhook próprios. As credenciais vêm do `src/.env`; os nomes podem
+ser trocados com `TEST_DB_NAME` e `TEST_REDIS_DB`.
 
-## Scripts
+Cobre: criptografia dos tokens, webhook (HMAC, 403, claim, mensagem do bot), simetria da
+chave do claim entre webhook e sorteio, os casos do 409 do EventSub, callbacks de OAuth do
+streamer e do bot, renovação do token no envio de mensagem, pool sob queda de conexões e
+concorrência (três envios de 1s terminam em ~1s, não em 3s). **Não cobre** o bot do
+Discord nem o laço do sorteio.
 
-`scripts/token_bot.py` monta a URL de autorização da conta do bot e troca o code pelo token,
-imprimindo o INSERT pronto. **Está obsoleto** desde que a rota `/twitch_callback/bot` passou a
-fazer isso pelo comando do Discord, e o INSERT que ele gera grava o token em texto puro, que
-agora é recusado na leitura. Pode ser removido.
+Fora da máquina do autor, o contêiner tem PostgreSQL 16 (`/usr/lib/postgresql/16/bin`) e
+`redis-server`: basta subir um cluster temporário (`initdb` + `pg_ctl` numa porta
+alternativa) e um `redis-server`, e apontar `DB_HOST`/`DB_PORT`/`REDIS_PORT` para eles. A
+pasta de dados do `initdb` precisa ficar num lugar acessível ao usuário `postgres` (por
+exemplo, `/var/tmp`). Teste novo segue o mesmo princípio: nada de simular o banco.
 
 ## Branches
 

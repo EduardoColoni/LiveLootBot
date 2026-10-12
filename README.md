@@ -381,8 +381,9 @@ LiveLootBot/
 │   └── database/               # Repositórios de PostgreSQL e Redis
 ├── migrations/                 # Schema versionado (ver README de lá)
 ├── PostDocker/                 # Docker Compose e configuração do ngrok
-├── scripts/                    # Utilitários de operação
-└── requirements.txt
+├── tests/                      # Testes automatizados (pytest)
+├── requirements.txt
+└── requirements-dev.txt        # requirements.txt + pytest
 ```
 
 ### Endpoints da API
@@ -426,6 +427,23 @@ segredo (`sha256:...`), nunca o segredo em si.
 A lógica ponderada do sorteio é uma função PL/pgSQL (`make_raffle`), executada dentro do
 banco. O schema completo, incluindo as funções, está em `migrations/` — veja o
 [README de lá](migrations/README.md).
+
+---
+
+## Testes
+
+A suíte em `tests/` roda contra o PostgreSQL e o Redis **de verdade** (os do Docker
+Compose); só a Twitch é simulada. Com a infraestrutura no ar:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements-dev.txt   # só na primeira vez
+python -m pytest -v
+```
+
+Os dados reais não são tocados: os testes criam e apagam um banco próprio
+(`live_loot_bot_pytest`) e usam o banco 15 do Redis. A API não precisa estar rodando, os
+testes sobem a deles.
 
 ---
 

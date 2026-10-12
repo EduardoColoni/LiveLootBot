@@ -5,6 +5,9 @@
 __pycache__/
 *.py[cod]
 
+# Cache do pytest
+.pytest_cache/
+
 # Ignorar variáveis de ambiente
 .env
 
