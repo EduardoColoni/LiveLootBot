@@ -77,6 +77,13 @@ A conta do bot na Twitch é **separada** da conta do streamer; seu id está em
 depois de alguém autorizar no navegador, não há como gerá-los programaticamente.
 O terceiro é totalmente automático (`AuthService.get_app_access_token`).
 
+**Os tokens são gravados cifrados** (Fernet, `src/core/criptografia.py`), com a chave
+`TOKEN_ENCRYPTION_KEY` do `src/.env`. A cifragem fica toda em `PostgresRepositoryAuth`: quem
+chama continua entregando e recebendo o dicionário do token. No banco fica o envelope
+`{"alg": "fernet", "kid": 1, "ct": ...}`. Um token sem envelope (texto puro) é **recusado**
+na leitura com `TokenSemCriptografiaError`, nunca usado; o App Access Token, por ser
+automático, é regerado nesse caso. O `expires_at` continua em coluna própria e em claro.
+
 ## Como o `!claim` funciona
 
 1. O sorteio escolhe um viewer aleatório de `authenticated_users` (**não** consulta a lista
@@ -92,6 +99,12 @@ id do canal e o sorteio usava o id do viewer — coincidia só quando o viewer e
 canal. Os dois ids são necessários: pode haver mais de uma live simultânea com o mesmo viewer.
 
 Mensagens da própria conta do bot são descartadas na entrada do webhook.
+
+O segredo do HMAC vem de `TWITCH_WEBHOOK_SECRET` no `src/.env`. A Twitch assina com o segredo
+dado na **criação** da inscrição e não deixa trocá-lo depois; por isso a coluna
+`webhook_secret` guarda a impressão digital do segredo (`sha256:...`) e, no 409, a inscrição
+só é reaproveitada se a impressão digital bater, senão é apagada e recriada. Assinatura
+inválida devolve 403.
 
 ## Banco de dados
 
@@ -129,46 +142,60 @@ O schema está versionado em `migrations/` — ver o `README.md` de lá. O
   `app-network`, que no host é uma `br-<id>` e não a `docker0`, e esse nome muda a cada
   `docker compose down`. Os comandos estão no `README.md`.
 - **Os redirect URIs precisam estar cadastrados** no app da Twitch (`/streamer`, `/viewer`,
-  `/bot`), senão o OAuth devolve `redirect_mismatch`.
-- **Os arquivos `__init__` estão grafados `__inity__.py`.** Funciona por acaso (namespace
-  packages), mas é um erro.
-- `src/api/routes/teste.py` e `src/bot/services/test.py` são rascunhos; o primeiro dispara
-  uma requisição HTTP ao ser importado.
+  `/bot`), senão o OAuth devolve `redirect_mismatch`. Os links que o bot manda no Discord e
+  as trocas de code nos callbacks usam os três `REDIRECT_URI_*` do `.env`; nenhum endereço
+  fica no código.
 
 ## Como validar mudanças
 
-Não há testes automatizados no repositório, mas **dá para validar de verdade sem depender do
-ambiente do autor**: o contêiner tem PostgreSQL 16 (`/usr/lib/postgresql/16/bin`) e
-`redis-server` disponíveis. O procedimento usado até aqui:
+Há uma suíte em `tests/` (pytest) que roda contra **PostgreSQL e Redis de verdade**, sem
+simular o banco. Só a Twitch é simulada (`TwitchFalsa`, no `conftest.py`); a API sobe com
+`uvicorn` numa thread e as requisições são HTTP de verdade, com assinatura HMAC real no
+webhook.
 
-1. Subir um cluster temporário (`initdb` + `pg_ctl` numa porta alternativa) e um `redis-server`
-2. Carregar o schema a partir de um dump do banco real
-3. Popular com dados de exemplo e exercitar o código com as variáveis de ambiente apontando
-   para essa instância
-4. Para as rotas, subir a API real com `uvicorn` numa thread e bater nela com requisições —
-   inclusive concorrentes, para medir bloqueio
-5. Para o webhook, montar a assinatura HMAC de verdade em vez de contornar a validação
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -v
+```
 
-Foi assim que se mediu o ganho de concorrência (3,04s → 1,04s em três requisições simultâneas)
-e que se reproduziu a queda de conexões do pool. Vale repetir esse padrão em vez de confiar
-em inspeção de código.
+Não encosta nos dados reais: usa o banco `live_loot_bot_pytest` (recriado do zero a cada
+execução a partir do `000_schema_inicial.sql`) e o banco 15 do Redis, com chave de
+criptografia e segredo de webhook próprios. As credenciais vêm do `src/.env`; os nomes podem
+ser trocados com `TEST_DB_NAME` e `TEST_REDIS_DB`.
 
-## Scripts
+Cobre: criptografia dos tokens, webhook (HMAC, 403, claim, mensagem do bot), simetria da
+chave do claim entre webhook e sorteio, os casos do 409 do EventSub, callbacks de OAuth do
+streamer e do bot, `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
+concorrência (três envios de 1s terminam em ~1s, não em 3s). **Não cobre** o bot do
+Discord nem o laço do sorteio.
 
-`scripts/token_bot.py` monta a URL de autorização da conta do bot e troca o code pelo token,
-imprimindo o INSERT pronto. **Está obsoleto** desde que a rota `/twitch_callback/bot` passou a
-fazer isso pelo comando do Discord. Pode ser removido.
+Fora da máquina do autor, o contêiner tem PostgreSQL 16 (`/usr/lib/postgresql/16/bin`) e
+`redis-server`: basta subir um cluster temporário (`initdb` + `pg_ctl` numa porta
+alternativa) e um `redis-server`, e apontar `DB_HOST`/`DB_PORT`/`REDIS_PORT` para eles. A
+pasta de dados do `initdb` precisa ficar num lugar acessível ao usuário `postgres` (por
+exemplo, `/var/tmp`). Teste novo segue o mesmo princípio: nada de simular o banco.
 
 ## Branches
 
-- `master` — versão antiga
+O **`master`** é a branch principal e tem todo o trabalho atual. Já recebeu, em ordem:
+
 - `new_method` — base do trabalho atual
 - `remove_kick` — remove a integração com a Kick (havia suporte a duas plataformas)
-- `tokens_twitch` — a partir da anterior: App Access Token automático, rota
-  `/twitch_callback/bot`, correção da chave do claim, tratamento do 409 do EventSub,
-  verificação de conexão no pool, e trabalho bloqueante fora do laço de eventos
+- `tokens_twitch` — App Access Token automático, rota `/twitch_callback/bot`, correção da
+  chave do claim, tratamento do 409 do EventSub, verificação de conexão no pool, trabalho
+  bloqueante fora do laço de eventos
+- `criptografia_tokens` — tokens cifrados (Fernet), segredo do webhook no `.env`, suíte de
+  testes em `tests/`, remoção de rascunhos e do `scripts/token_bot.py`, `__init__.py`
+  corrigidos, endereços do ngrok fora do código e logs sem dados pessoais
 
-Nenhuma foi mesclada na `new_method` ainda.
+`new_method` e `kick` continuam no remoto só como histórico. Trabalho novo sai do `master`.
+
+## Logs
+
+Os `print` usam prefixos por área: `[OAuth]`, `[EventSub]`, `[Chat]`, `[Sorteio]`. **Nunca
+imprimir** token, resposta bruta da Twitch, objeto de usuário ou de evento inteiro, nem nome
+ou e-mail: já houve `print` de depuração mostrando o perfil completo do viewer, com e-mail.
+Ids de inscrição e o tipo da mensagem (`claim`, `winner`...) são suficientes para acompanhar.
 
 ## Concorrência
 
@@ -186,9 +213,8 @@ discord.py.
 - `RaffleService.raffle_viewer` devolve um valor quando falha e dois quando dá certo;
   `/iniciar_sorteio` estoura com `cannot unpack non-iterable NoneType` se não houver
   viewer autenticado.
-- Os tokens são gravados em texto legível; o TCC afirma que são criptografados.
-- O segredo do webhook (`umSegredoForteAqui123`) está fixo no código, em três lugares.
 - Intervalo entre rodadas, janela do claim e número de tentativas estão fixos no código;
   o TCC promete que o criador configura esses valores.
-- As URLs de autorização do streamer e do viewer têm o endereço do ngrok fixo no
-  `raffle_service.py`, embora já exista `URL_BASE` no `.env`.
+- O log de acesso do uvicorn mostra a query string inteira. Nos callbacks de OAuth ela leva o
+  `state` (base64 com o id e o nome do Discord do viewer) e o `code`, que é de uso único; no
+  `/twitch_chatters/send_message`, o nome do ganhador na Twitch vai em `user_name`.

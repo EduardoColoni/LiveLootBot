@@ -1,7 +1,7 @@
-import json
-
 import psycopg2
 from psycopg2 import errorcodes
+
+from src.core.criptografia import cifrar_token, decifrar_token, TokenSemCriptografiaError
 
 class PostgresRepositoryAuth:
     def __init__(self, conn):
@@ -66,7 +66,7 @@ class PostgresRepositoryAuth:
                     "INSERT INTO streamer_platform (streamer_id, platform_id, platform_name, token) "
                     "VALUES (%s, %s, %s, %s) "
                     "ON CONFLICT (streamer_id, platform_name) DO UPDATE SET token = EXCLUDED.token, updated_at = NOW()",
-                    (streamer_id, platform_id, platform_name, json.dumps(token_data))
+                    (streamer_id, platform_id, platform_name, cifrar_token(token_data))
                 )
             # 3. Comita a transação apenas no final.
             self.conn.commit()
@@ -77,13 +77,13 @@ class PostgresRepositoryAuth:
 
     def refresh_token(self, token_data: dict, platform_id : str) -> None:
         try:
-            #Insere token em formato JSON no banco de dados
+            # O token vai cifrado: no banco só fica o envelope (ver src/core/criptografia.py)
             with self.conn.cursor() as cur:
                 cur.execute(
                     """UPDATE streamer_platform 
                     SET token = %s 
                     WHERE platform_id = %s""",
-                    (json.dumps(token_data), platform_id)
+                    (cifrar_token(token_data), platform_id)
                 )
             self.conn.commit()
 
@@ -100,8 +100,7 @@ class PostgresRepositoryAuth:
             """, (platform_id,))
             row = cur.fetchone()
             if row:
-                import json
-                return json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                return decifrar_token(row[0], f"token da plataforma {platform_id}")
             return None
 
     def select_streamer_id(self, guild_id: str):
@@ -136,10 +135,10 @@ class PostgresRepositoryAuth:
                 )
                 row = cur.fetchone()
                 if row:
-                    import json
-                    # token está salvo como JSONB ou TEXT, garante que sempre retorna dict
-                    return json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                    return decifrar_token(row[0], "App Access Token")
                 return None  # não encontrou token
+        except TokenSemCriptografiaError:
+            raise
         except Exception as e:
             self.conn.rollback()
             raise RuntimeError(f"Erro ao pegar o App Access Token: {e}")
@@ -163,8 +162,10 @@ class PostgresRepositoryAuth:
                 )
                 row = cur.fetchone()
                 if row:
-                    return json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                    return decifrar_token(row[0], "App Access Token")
                 return None  # não tem token válido, quem chamou que gere um novo
+        except TokenSemCriptografiaError:
+            raise
         except Exception as e:
             self.conn.rollback()
             raise RuntimeError(f"Erro ao pegar o App Access Token válido: {e}")
@@ -183,7 +184,7 @@ class PostgresRepositoryAuth:
                     "INSERT INTO streamer_platform (streamer_id, platform_id, platform_name, token) "
                     "VALUES (%s, %s, %s, %s) "
                     "ON CONFLICT (platform_id) DO UPDATE SET token = EXCLUDED.token, updated_at = NOW()",
-                    (streamer_id, platform_id, platform_name, json.dumps(token_data))
+                    (streamer_id, platform_id, platform_name, cifrar_token(token_data))
                 )
             self.conn.commit()
 
@@ -226,6 +227,35 @@ class PostgresRepositoryAuth:
             self.conn.rollback()
             raise RuntimeError(f"Failed to insert/update EventSub subscription: {e}")
 
+    def select_webhook_fingerprint(self, subscription_id: str):
+        """
+        Impressão digital do segredo com que a inscrição foi criada (não o segredo em si).
+        None se o banco não conhece a inscrição.
+        """
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT webhook_secret FROM twitch_eventsub_subscription WHERE subscription_id = %s",
+                    (subscription_id,)
+                )
+                row = cur.fetchone()
+                return row[0] if row else None
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Erro ao buscar a inscrição do EventSub: {e}")
+
+    def delete_eventsub_subscription(self, subscription_id: str):
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM twitch_eventsub_subscription WHERE subscription_id = %s",
+                    (subscription_id,)
+                )
+            self.conn.commit()
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"Erro ao apagar a inscrição do EventSub: {e}")
+
     def insert_app_access_token(self, token_data: dict):
         try:
             with self.conn.cursor() as cur:
@@ -242,7 +272,7 @@ class PostgresRepositoryAuth:
                                   expires_at = EXCLUDED.expires_at,
                                   created_at = NOW()
                     """,
-                    (json.dumps(token_data),)
+                    (cifrar_token(token_data),)
                 )
             self.conn.commit()
         except psycopg2.Error as e:

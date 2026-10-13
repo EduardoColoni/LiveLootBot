@@ -73,7 +73,6 @@ class TwitchChattersController:
     def send_message(self, platform_id: str, user_name: str, item_name: str, message_control: str):
         conn = PostgresPool.get_conn()
 
-        print(f"Esse é o conteudo do platform_id dentro da função da api {platform_id}")
         try:
             repo_auth = PostgresRepositoryAuth(conn)
 
@@ -127,12 +126,12 @@ class TwitchChattersController:
                 # Primeira tentativa
                 headers = load_headers()
                 response_data = do_send_message_request(headers)
-                print("Mensagem enviada com sucesso")
+                print(f"[Chat] Mensagem enviada: {message_control}")
                 return JSONResponse(content=response_data)
 
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
-                    print(f"[INFO] Token inválido. Tentando refresh para bot_platform_id={bot_platform_id}")
+                    print("[Chat] Token do bot recusado (401), renovando")
 
                     try:
                         # Chamada direta para a função de refresh
@@ -141,7 +140,7 @@ class TwitchChattersController:
                         # Segunda tentativa após o refresh
                         headers = load_headers()
                         response_data = do_send_message_request(headers)
-                        print("Token atualizado e mensagem enviada com sucesso!")
+                        print(f"[Chat] Token renovado e mensagem enviada: {message_control}")
                         return JSONResponse(content=response_data)
 
                     except RuntimeError as e_refresh:

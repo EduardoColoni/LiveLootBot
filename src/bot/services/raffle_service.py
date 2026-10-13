@@ -44,7 +44,7 @@ class RaffleService:
 
             if not self.user_input or not item:
                 await on_winner_callback(None)
-                print("Itens para sorteio vazio ou usuário parou a função")
+                print("[Sorteio] Encerrado: sem itens restantes ou interrompido com /parar")
                 break
 
             # Decide aleatoriamente se haverá sorteio
@@ -59,13 +59,13 @@ class RaffleService:
 
                 if not winner_resolved:
                     # Se ninguém deu claim após 3 tentativas, envia aviso e passa para próximo item
-                    print("Nenhum vencedor válido encontrado após 3 tentativas")
+                    print("[Sorteio] Ninguém deu !claim após 3 tentativas")
                     await asyncio.to_thread(partial(self.send_winner_message, viewer, streamer_id, item_name, "not-claim"))
 
                     await on_winner_callback(None)
 
             else:
-                print("Não haverá sorteio nesse turno")
+                print("[Sorteio] Não haverá sorteio nesse turno")
 
     async def make_raffle_bot(self, item, on_winner_callback):
         """
@@ -151,17 +151,14 @@ class RaffleService:
             raise RuntimeError(f"Erro ao enviar a mensagem para {platform_name}: {resp.status_code} - {resp.text}")
 
     def send_winner_message(self, viewer: dict, streamer_id: int, item_name: str, message_control: str):
-        print(f"Verificando plataformas do ganhador {viewer}...")
-
         streamer_platform_id_raw = self.repo_raffle.select_streamer_platforms(streamer_id)
 
         # 1. Envia para Twitch, se o ganhador estiver cadastrado
         if viewer['twitch']['id'] is not None:
             try:
-                print("Ganhador tem cadastro na Twitch. Enviando mensagem...")
                 self.send_message_to_api("twitch", streamer_platform_id_raw['twitch']['platform_id'], viewer['twitch'], item_name, message_control)
             except RuntimeError as e:
-                print(f"Falha ao enviar mensagem para Twitch: {e}")
+                print(f"[Sorteio] Falha ao enviar mensagem ({message_control}) para a Twitch: {e}")
 
     def claim_key(self, viewer: dict, streamer_id: int):
         """
@@ -241,20 +238,14 @@ class RaffleService:
         state_json = json.dumps(state_dict)
         encoded_state = urllib.parse.quote_plus(base64.b64encode(state_json.encode()).decode())
 
-        twitch_auth_url = (
-            twitch["TWITCH_URL"] + "/authorize?"
-            "response_type=code&"
-            f"client_id={twitch["CLIENT_ID"]}&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
-            "scope=chat:edit+chat:read+moderator:read:chatters+user:write:chat&"
-            f"state={encoded_state}"
-        )
-
+        # O redirect_uri vem do .env: é o mesmo que o callback usa ao trocar o code
+        # pelo token (o OAuth exige os dois iguais) e precisa estar cadastrado no
+        # app da Twitch, senão ela recusa com redirect_mismatch.
         twitch_auth_url_streamer = (
             twitch["TWITCH_URL"] + "/authorize?"
             "response_type=code&"
             f"client_id={twitch['CLIENT_ID']}&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fstreamer&"
+            f"redirect_uri={urllib.parse.quote_plus(twitch['REDIRECT_URI_STREAMER'])}&"
             "scope=channel:bot+moderator:read:chatters&"
             f"state={encoded_state}"
         )
@@ -287,8 +278,8 @@ class RaffleService:
         twitch_auth_url = (
             twitch["TWITCH_URL"] + "/authorize?"
             "response_type=code&"
-            f"client_id={twitch["CLIENT_ID"]}&"
-            "redirect_uri=https%3A%2F%2Fremarkably-knowing-serval.ngrok-free.app%2Ftwitch_callback%2Fviewer&"
+            f"client_id={twitch['CLIENT_ID']}&"
+            f"redirect_uri={urllib.parse.quote_plus(twitch['REDIRECT_URI_VIEWER'])}&"
             "scope=user:read:email&"
             f"state={encoded_state}"
         )

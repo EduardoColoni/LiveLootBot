@@ -6,9 +6,11 @@ anyio==3.7.1
 attrs==25.3.0
 audioop-lts==0.2.1
 certifi==2025.1.31
+cffi==2.1.1
 charset-normalizer==3.4.1
 click==8.1.8
 colorama==0.4.6
+cryptography==46.0.3
 discord==2.3.2
 discord.py==2.5.2
 fastapi==0.115.12
@@ -22,6 +24,7 @@ multidict==6.3.2
 propcache==0.3.1
 psycopg2-binary==2.9.10
 pyasn1==0.6.1
+pycparser==3.0
 pydantic==2.11.2
 pydantic_core==2.33.1
 python-dotenv==1.1.0

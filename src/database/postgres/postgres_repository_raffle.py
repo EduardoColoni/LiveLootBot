@@ -97,7 +97,7 @@ class PostgresRepositoryRaffle:
             with self.conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT sp.platform_name, sp.platform_id, sp.token
+                    SELECT sp.platform_name, sp.platform_id
                     FROM streamer_platform sp
                     JOIN streamer s ON s.id = sp.streamer_id
                     WHERE s.id = %s
@@ -112,8 +112,7 @@ class PostgresRepositoryRaffle:
                 # transforma em dicionário com chave = platform_name
                 result = {
                     row[0]: {
-                        "platform_id": row[1],
-                        "token": row[2]
+                        "platform_id": row[1]
                     }
                     for row in rows
                 }

@@ -6,6 +6,7 @@ import json, base64
 from src.api.services.auth_service import AuthService
 from src.core.config import twitch
 from src.core.config import api_config
+from src.core.criptografia import get_webhook_secret, impressao_digital_segredo
 from src.database.postgres.postgres_repository_auth import PostgresRepositoryAuth
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.redis.redis_repository import RedisRepository
@@ -39,8 +40,6 @@ class TwitchAuthController:
             if not code or not uuid_state:
                 return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
 
-            print(f"Só um teste para ver o guild_id: {guild_id}")
-
             data = {
                 "client_id": twitch["CLIENT_ID"],
                 "client_secret": twitch["CLIENT_SECRET"],
@@ -59,7 +58,7 @@ class TwitchAuthController:
                 #Se não tiver ninguem cadastrado com o guild_id vai deixar ir, caso não vai barrar
                 if streamer_id_auth is None:
                     repo_auth.new_insert_token(token_json, guild_id, streamer_name, platform_id, "twitch")
-                    print("Autenticação concluída com sucesso!")
+                    print("[OAuth] Streamer autenticado, token gravado")
                     return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
                 else:
                     return HTMLResponse("<h1>Apenas um streamer pode ser cadastrado por servidor ou streamer já autenticado, caso precise de ajuda entre em contato com o suporte!</h1>")
@@ -127,7 +126,7 @@ class TwitchAuthController:
                 )
 
             repo_auth.insert_bot_token(token_json, int(streamer_id), str(bot_platform_id))
-            print(f"Token do bot ({bot_display_name}) salvo com sucesso!")
+            print("[OAuth] Conta do bot autenticada, token gravado")
             return HTMLResponse("<h1>Bot autenticado com sucesso! 🤖</h1>")
 
         except ValueError:
@@ -153,14 +152,12 @@ class TwitchAuthController:
             discord_user_id = state_dict["discord_user_id"]
             discord_user_name = state_dict["discord_user_name"]
 
-            print(f"Só um teste para ver o guild_id: {guild_id}, e tambem o user_id: {discord_user_id} e {discord_user_name}")
-
             data = {
                 "client_id": twitch["CLIENT_ID"],
                 "client_secret": twitch["CLIENT_SECRET"],
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": twitch["REDIRECT_URI_STREAMER"]
+                "redirect_uri": twitch["REDIRECT_URI_VIEWER"]  # o mesmo do link do !autenticar
             }
 
             response = requests.post(twitch["TWITCH_URL"] + "/token", data=data, timeout=10)
@@ -168,7 +165,6 @@ class TwitchAuthController:
             if response.status_code == 200:
                 token_json = response.json()
                 twitch_user, twitch_id, twitch_user_name = self.get_user(token_json["access_token"])
-                print(f"\nteste2 bbbbbbb {twitch_user_name} e {twitch_id}\n")
                 streamer_id = repo_auth.select_streamer_id(guild_id)
 
                 if streamer_id is None:
@@ -177,7 +173,7 @@ class TwitchAuthController:
                 streamer_id = int(streamer_id)
 
                 repo_auth.insert_user(streamer_id, discord_user_id, twitch_id, discord_user_name, twitch_user_name) #Vou mudar essa daqui, antes disso vou precisar fazer uma consulta para pegar o id do streamer com o guild_id
-                print("Autenticação concluída com sucesso!")
+                print("[OAuth] Viewer autenticado")
                 return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
 
             return HTMLResponse(f"Erro ao autenticar: {response.text}", status_code=response.status_code)
@@ -202,7 +198,6 @@ class TwitchAuthController:
 
         data = response.json()
         user = data["data"][0]
-        print(f"\nteste aaaaaaaaaaa {user}\n")
         return user["login"], user["id"], user["display_name"]
 
     @staticmethod
@@ -248,6 +243,20 @@ class TwitchAuthController:
         return None
 
     @staticmethod
+    def delete_eventsub_subscription(headers: dict, subscription_id: str):
+        """Apaga uma inscrição na Twitch. Se ela já não existir (404), não há o que fazer."""
+        response = requests.delete(
+            "https://api.twitch.tv/helix/eventsub/subscriptions",
+            headers=headers,
+            params={"id": subscription_id},
+            timeout=10
+        )
+        if response.status_code not in (204, 404):
+            raise RuntimeError(
+                f"Erro ao apagar a inscrição {subscription_id} na Twitch: {response.status_code} - {response.text}"
+            )
+
+    @staticmethod
     def event_sub_signature(platform_id : str):
         conn = PostgresPool.get_conn()
         try:
@@ -262,6 +271,11 @@ class TwitchAuthController:
             #platform_id = "102089057"
 
             user_id_bot = twitch["BOT_PLATFORM_ID"]
+
+            # O segredo vem do .env. No banco só fica a impressão digital dele,
+            # que diz com qual segredo cada inscrição foi criada.
+            webhook_secret = get_webhook_secret()
+            fingerprint = impressao_digital_segredo(webhook_secret)
 
             headers = {
                 "Authorization": f"Bearer {app_access_token['access_token']}",
@@ -279,15 +293,18 @@ class TwitchAuthController:
                 "transport": {
                     "method": "webhook",
                     "callback": f"{url_base}/twitch/eventsub",
-                    "secret": "umSegredoForteAqui123"
+                    "secret": webhook_secret
                 }
             }
 
-            response = requests.post(
-                "https://api.twitch.tv/helix/eventsub/subscriptions",
-                headers=headers,
-                json=body
-            )
+            def criar_inscricao():
+                return requests.post(
+                    "https://api.twitch.tv/helix/eventsub/subscriptions",
+                    headers=headers,
+                    json=body
+                )
+
+            response = criar_inscricao()
 
             if response.status_code == 202:
                 sub = response.json()["data"][0]
@@ -310,13 +327,26 @@ class TwitchAuthController:
                         f"e não para {url_base}/twitch/eventsub. Apague ela na Twitch e rode de novo."
                     )
 
-                print(f"[INFO] Inscrição já existia na Twitch, reaproveitando: {sub['id']}")
+                # A Twitch assina cada evento com o segredo dado na criação da
+                # inscrição, e não deixa trocá-lo depois. Só dá para reaproveitar
+                # se o banco confirmar que ela foi criada com o segredo atual;
+                # senão (segredo trocado, ou banco apagado) é apagar e criar de novo.
+                if repo_auth.select_webhook_fingerprint(sub["id"]) == fingerprint:
+                    print(f"[EventSub] Inscrição já existia com o segredo atual, reaproveitada: {sub['id']}")
+                else:
+                    print(f"[EventSub] Inscrição {sub['id']} foi criada com outro segredo (ou o banco não a conhece). Recriando...")
+                    TwitchAuthController.delete_eventsub_subscription(headers, sub["id"])
+                    repo_auth.delete_eventsub_subscription(sub["id"])
+
+                    response = criar_inscricao()
+                    if response.status_code != 202:
+                        raise RuntimeError(
+                            f"Erro ao recriar a EventSub subscription: {response.status_code} - {response.text}"
+                        )
+                    sub = response.json()["data"][0]
 
             else:
                 raise RuntimeError(f"Erro ao criar EventSub subscription: {response.status_code} - {response.text}")
-
-            print(response.status_code, response.text)
-            print(f"teste: {response.status_code} e tambem o: {response.text}")
 
             # Mapeamento de status da Twitch para o banco
             status_map = {
@@ -338,11 +368,11 @@ class TwitchAuthController:
                 status=status_db,
                 type_=sub["type"],
                 transport_callback=sub["transport"]["callback"],
-                webhook_secret="umSegredoForteAqui123",
+                webhook_secret=fingerprint,
                 expires_at=str(datetime.fromisoformat(expires_at.replace("Z", "+00:00")))
             )
 
-            print(f"[INFO] EventSub subscription criada com sucesso: {sub['id']}")
+            print(f"[EventSub] Inscrição de chat registrada: {sub['id']}")
 
         finally:
             PostgresPool.release_conn(conn)
