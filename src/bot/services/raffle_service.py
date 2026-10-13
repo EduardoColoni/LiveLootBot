@@ -17,6 +17,11 @@ from src.database.redis.connection.redis_connection import RedisConnectionHandle
 from src.database.postgres.postgres_repository_raffle import PostgresRepositoryRaffle
 from src.database.postgres.connection.postgres_connection import PostgresPool
 
+
+class SemEspectadoresError(Exception):
+    """Ninguém fez !autenticar no servidor: não há a quem sortear o item."""
+
+
 class RaffleService:
     def __init__(self, conn=None, guild_id=None):
         self.guild_id = guild_id
@@ -118,9 +123,9 @@ class RaffleService:
         raffle_user = self.repo_raffle.raffle_viewer(streamer_id)
 
         if not raffle_user:
-            return None
-        else:
-            return raffle_user, streamer_id
+            raise SemEspectadoresError("Nenhum espectador autenticado neste servidor")
+
+        return raffle_user, streamer_id
 
     def send_message_to_api(self, platform_name: str, platform_id: str, viewer_data: dict, item_name: str, message_control: str):
         url_base = api_config["URL_BASE"]

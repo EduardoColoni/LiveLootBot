@@ -166,8 +166,9 @@ ser trocados com `TEST_DB_NAME` e `TEST_REDIS_DB`.
 Cobre: criptografia dos tokens, webhook (HMAC, 403, claim, mensagem do bot), simetria da
 chave do claim entre webhook e sorteio, os casos do 409 do EventSub, callbacks de OAuth do
 streamer e do bot, `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
-concorrência (três envios de 1s terminam em ~1s, não em 3s). **Não cobre** o bot do
-Discord nem o laço do sorteio.
+concorrência (três envios de 1s terminam em ~1s, não em 3s) e o laço do sorteio, rodando
+o `/iniciar_sorteio` de verdade com uma interação do Discord simulada (`test_sorteio.py`).
+**Não cobre** a conexão com o Discord em si nem os demais comandos do bot.
 
 Fora da máquina do autor, o contêiner tem PostgreSQL 16 (`/usr/lib/postgresql/16/bin`) e
 `redis-server`: basta subir um cluster temporário (`initdb` + `pg_ctl` numa porta
@@ -210,9 +211,6 @@ discord.py.
 
 ## Pendências conhecidas
 
-- `RaffleService.raffle_viewer` devolve um valor quando falha e dois quando dá certo;
-  `/iniciar_sorteio` estoura com `cannot unpack non-iterable NoneType` se não houver
-  viewer autenticado.
 - Intervalo entre rodadas, janela do claim e número de tentativas estão fixos no código;
   o TCC promete que o criador configura esses valores.
 - O log de acesso do uvicorn mostra a query string inteira. Nos callbacks de OAuth ela leva o

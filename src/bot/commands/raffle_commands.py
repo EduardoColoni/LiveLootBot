@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.bot.services.raffle_service import RaffleService
+from src.bot.services.raffle_service import RaffleService, SemEspectadoresError
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.postgres.postgres_repository_raffle import PostgresRepositoryRaffle
 
@@ -75,7 +75,14 @@ class Raffle(commands.Cog):
                         return
                     await interaction.followup.send(f"🎉 O vencedor foi **{winner_name}** com o item **{item[2]}!**")
 
-                await service.raffle_loop(10, notify_winner)
+                try:
+                    await service.raffle_loop(10, notify_winner)
+                except SemEspectadoresError:
+                    print("[Sorteio] Encerrado: nenhum espectador autenticado")
+                    await interaction.followup.send(
+                        "Nenhum espectador autenticado neste servidor. "
+                        "Peça para os espectadores usarem **!autenticar** e inicie o sorteio de novo."
+                    )
 
             finally:
                 PostgresPool.release_conn(conn)
