@@ -30,7 +30,6 @@ class PostgresPool:
             conn = cls.__pool.getconn()
 
             if cls.__esta_viva(conn):
-                print("Conexão realizada ao banco")
                 return conn
 
             print("AVISO: conexão obsoleta descartada, pegando outra")
@@ -53,7 +52,6 @@ class PostgresPool:
     def release_conn(cls, conn):
         if cls.__pool:
             cls.__pool.putconn(conn)
-            print("Conexão retornada ao pool")
 
     @classmethod
     def close_all(cls):

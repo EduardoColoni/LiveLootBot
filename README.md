@@ -201,6 +201,12 @@ URL_BASE=https://SEU-DOMINIO.ngrok-free.app
 
 > `REDIRECT_URI_BOT` é opcional: se não for definida, é derivada automaticamente de
 > `URL_BASE`. O mesmo vale para `BOT_PLATFORM_ID`, que tem um valor padrão no código.
+>
+> `REDIRECT_URI_STREAMER` e `REDIRECT_URI_VIEWER` são **obrigatórias**: os links de
+> autorização que o bot manda no Discord usam esses endereços, e nenhum endereço fica fixo no
+> código. Ao mudar de domínio (outra máquina, um servidor), troque `URL_BASE` e os três
+> `REDIRECT_URI_*`, cadastre os novos endereços no app da Twitch e refaça a etapa 3 do
+> *Primeiro uso*.
 
 Os dois valores secretos são gerados por você, não vêm de nenhum painel:
 
@@ -308,13 +314,14 @@ com a conta do bot**. O jeito mais simples é abrir o link numa janela anônima.
 > Se você autorizar com a conta errada, o sistema recusa e avisa qual conta foi usada e qual
 > era a esperada. Nada é gravado.
 
-Confirme que os dois foram registrados:
+Confirme que os dois foram registrados, e cifrados:
 
 ```sql
-SELECT platform_name, platform_id FROM streamer_platform;
+SELECT platform_name, platform_id, left(token::text, 30) FROM streamer_platform;
 ```
 
-Devem aparecer `twitch` e `twitch_bot`.
+Devem aparecer `twitch` e `twitch_bot`, com o token no formato `{"ct": "gAAAAA...`. Se aparecer
+um `access_token` legível, a aplicação não está rodando a versão com criptografia.
 
 ### 3. Criar a inscrição de eventos do chat
 
@@ -322,9 +329,17 @@ Devem aparecer `twitch` e `twitch_bot`.
 curl "http://localhost:8000/twitch_callback/event_sub_signature?platform_id=SEU_ID_NA_TWITCH"
 ```
 
-A resposta `null` significa **sucesso** (o endpoint não retorna conteúdo). No log da API você
-verá o App Access Token sendo gerado sozinho e, em seguida, o desafio de verificação chegando
-da Twitch.
+A resposta `null` significa **sucesso** (o endpoint não retorna conteúdo). No log da API
+aparece `[EventSub] Inscrição de chat registrada` e, logo em seguida, um
+`POST /twitch/eventsub ... 200`: é a Twitch enviando o desafio de verificação, assinado com o
+`TWITCH_WEBHOOK_SECRET`.
+
+Se o segredo foi trocado ou o banco foi recriado, antes disso aparece
+`[EventSub] Inscrição ... foi criada com outro segredo ... Recriando...`. É o esperado: a Twitch
+não deixa trocar o segredo de uma inscrição, então a antiga é apagada e criada de novo.
+
+O `status` gravado no banco é o do momento da criação (`pending`); a confirmação é o
+`POST /twitch/eventsub ... 200` no log.
 
 ```sql
 SELECT subscription_id, status FROM twitch_eventsub_subscription;
@@ -449,6 +464,9 @@ testes sobem a deles.
 
 ## Solução de problemas
 
+O log da API e do bot usa os prefixos `[OAuth]`, `[EventSub]`, `[Chat]` e `[Sorteio]`, e não
+mostra tokens nem dados pessoais (nome, e-mail, perfil da Twitch).
+
 **`ERR_NGROK_8012` ao abrir a URL pública**
 O tráfego chegou ao agente do ngrok, mas o agente não alcançou a API. A linha de erro na
 própria página diz qual dos três casos é:
@@ -532,7 +550,8 @@ docker compose down -v      # apaga os volumes — o banco inteiro vai junto
 docker compose up -d
 ```
 
-Depois é preciso refazer todas as autenticações do *Primeiro uso*.
+Depois é preciso refazer todas as autenticações do *Primeiro uso*. A `TOKEN_ENCRYPTION_KEY`
+e o `TWITCH_WEBHOOK_SECRET` do `src/.env` podem continuar os mesmos.
 
 ---
 

@@ -177,14 +177,25 @@ exemplo, `/var/tmp`). Teste novo segue o mesmo princípio: nada de simular o ban
 
 ## Branches
 
-- `master` — versão antiga
+O **`master`** é a branch principal e tem todo o trabalho atual. Já recebeu, em ordem:
+
 - `new_method` — base do trabalho atual
 - `remove_kick` — remove a integração com a Kick (havia suporte a duas plataformas)
-- `tokens_twitch` — a partir da anterior: App Access Token automático, rota
-  `/twitch_callback/bot`, correção da chave do claim, tratamento do 409 do EventSub,
-  verificação de conexão no pool, e trabalho bloqueante fora do laço de eventos
+- `tokens_twitch` — App Access Token automático, rota `/twitch_callback/bot`, correção da
+  chave do claim, tratamento do 409 do EventSub, verificação de conexão no pool, trabalho
+  bloqueante fora do laço de eventos
+- `criptografia_tokens` — tokens cifrados (Fernet), segredo do webhook no `.env`, suíte de
+  testes em `tests/`, remoção de rascunhos e do `scripts/token_bot.py`, `__init__.py`
+  corrigidos, endereços do ngrok fora do código e logs sem dados pessoais
 
-Nenhuma foi mesclada na `new_method` ainda.
+`new_method` e `kick` continuam no remoto só como histórico. Trabalho novo sai do `master`.
+
+## Logs
+
+Os `print` usam prefixos por área: `[OAuth]`, `[EventSub]`, `[Chat]`, `[Sorteio]`. **Nunca
+imprimir** token, resposta bruta da Twitch, objeto de usuário ou de evento inteiro, nem nome
+ou e-mail: já houve `print` de depuração mostrando o perfil completo do viewer, com e-mail.
+Ids de inscrição e o tipo da mensagem (`claim`, `winner`...) são suficientes para acompanhar.
 
 ## Concorrência
 
@@ -204,3 +215,6 @@ discord.py.
   viewer autenticado.
 - Intervalo entre rodadas, janela do claim e número de tentativas estão fixos no código;
   o TCC promete que o criador configura esses valores.
+- O log de acesso do uvicorn mostra a query string inteira. Nos callbacks de OAuth ela leva o
+  `state` (base64 com o id e o nome do Discord do viewer) e o `code`, que é de uso único; no
+  `/twitch_chatters/send_message`, o nome do ganhador na Twitch vai em `user_name`.

@@ -38,7 +38,7 @@ class AuthService:
                 raise RuntimeError(f"A Twitch não devolveu um access_token: {token_json}")
 
             self.repo_auth.insert_app_access_token(token_json)
-            print("App Access Token gerado e salvo.")
+            print("[OAuth] App Access Token gerado e gravado")
             return token_json
 
         except requests.exceptions.RequestException as e:
@@ -64,12 +64,11 @@ class AuthService:
         if token_data and "access_token" in token_data:
             return token_data
 
-        print("App Access Token ausente ou vencido, gerando um novo...")
+        print("[OAuth] App Access Token ausente ou vencido, gerando um novo")
         return self.generate_app_access_token()
 
     def twitch_refresh_token(self):
         try:
-            print(f"teste para ver o platform_id do refresh token twitch: {self.platform_id}")
             token_data = self.repo_auth.select_token_by_platform(self.platform_id)
             if not token_data:
                 # Em vez de retornar uma resposta HTTP, levante um erro para ser tratado
@@ -92,7 +91,7 @@ class AuthService:
 
             token_json = response.json()
             self.repo_auth.refresh_token(token_json, self.platform_id)
-            print("Token atualizado com sucesso twitch!")
+            print("[OAuth] Token renovado")
 
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Erro na requisição para a Twitch: {str(e)}")
