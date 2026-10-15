@@ -70,6 +70,12 @@ class Raffle(commands.Cog):
                 await interaction.response.send_message("Iniciando sorteio...")
 
                 async def notify_winner(winner_name, item=None):
+                    if not winner_name and item:
+                        await interaction.followup.send(
+                            f"Ninguém deu !claim no item **{item[2]}** após 3 tentativas. "
+                            "Ele volta a concorrer nas próximas rodadas."
+                        )
+                        return
                     if not winner_name:
                         await interaction.followup.send("Itens para sorteio vazio ou usuário parou a função")
                         return

@@ -60,3 +60,14 @@ def test_bot_com_state_malformado(api, twitch):
     r = requests.get(f"{api}/twitch_callback/bot", params={"code": "c", "state": "nao-e-base64-json"}, timeout=10)
 
     assert r.status_code == 400
+
+
+def test_streamer_com_canal_ja_usado_em_outro_servidor_recebe_mensagem_clara(api, twitch, streamer, sql):
+    """O banco recusa o mesmo canal em dois servidores; a pessoa precisa saber por quê."""
+    twitch.contas["code-streamer"] = {"id": streamer["platform_id"], "login": "canal_teste"}
+
+    r = _callback(api, "streamer", "code-streamer", _state(guild_id="outro-servidor"))
+
+    assert r.status_code == 409
+    assert "outro servidor" in r.text
+    assert sql("SELECT guild_id FROM streamer") == [(streamer["guild_id"],)]

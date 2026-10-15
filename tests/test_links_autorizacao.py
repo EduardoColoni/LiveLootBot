@@ -16,7 +16,8 @@ from conftest import URL_BASE
 
 
 def _parametros(link):
-    return {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(link).query).items()}
+    query = urllib.parse.urlparse(link).query
+    return {k: v[0] for k, v in urllib.parse.parse_qs(query, keep_blank_values=True).items()}
 
 
 @pytest.fixture
@@ -59,3 +60,13 @@ def test_redirect_uri_do_link_e_o_mesmo_da_troca_do_code(api, twitch, servico, s
 
     assert len(twitch.trocas_de_code) == 1
     assert twitch.trocas_de_code[0]["redirect_uri"] == link["redirect_uri"]
+
+
+def test_links_pedem_so_os_escopos_usados(servico):
+    """O fluxo antigo dos chatters (moderator:read:chatters) e o e-mail do viewer não são usados."""
+    links = servico.streamer_auth_method("guild1")
+    viewer = servico.viewer_auth_method("guild1", "d1", "fulano")["twitch"]
+
+    assert _parametros(links["twitch"])["scope"] == "channel:bot"
+    assert "moderator:read:chatters" not in _parametros(links["twitch_bot"])["scope"]
+    assert _parametros(viewer)["scope"] == ""

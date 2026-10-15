@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
@@ -7,6 +9,24 @@ from src.api.services.twitch_event_sub import twitch_event_sub_routes
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.api.routes.twitch_auth_route import setup_auth_routes
 from src.api.routes.twitch_chatters_routes import setup_chatters_routes
+
+class SemQueryString(logging.Filter):
+    """
+    Tira a query string da linha que o uvicorn registra a cada requisição.
+
+    Ela traz dados de pessoas: o state dos callbacks de OAuth (id e nome do Discord
+    do viewer, em base64) e o nome do ganhador no envio de mensagem. O caminho e o
+    status continuam no log.
+    """
+    def filter(self, record):
+        if isinstance(record.args, tuple) and len(record.args) == 5:
+            cliente, metodo, caminho, versao, status = record.args
+            record.args = (cliente, metodo, str(caminho).split("?", 1)[0], versao, status)
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(SemQueryString())
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

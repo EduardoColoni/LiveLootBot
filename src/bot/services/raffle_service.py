@@ -67,7 +67,8 @@ class RaffleService:
                     print("[Sorteio] Ninguém deu !claim após 3 tentativas")
                     await asyncio.to_thread(partial(self.send_winner_message, viewer, streamer_id, item_name, "not-claim"))
 
-                    await on_winner_callback(None)
+                    # Sem ganhador, mas com o item: o Discord avisa que ele volta a concorrer
+                    await on_winner_callback(None, item)
 
             else:
                 print("[Sorteio] Não haverá sorteio nesse turno")
@@ -251,7 +252,7 @@ class RaffleService:
             "response_type=code&"
             f"client_id={twitch['CLIENT_ID']}&"
             f"redirect_uri={urllib.parse.quote_plus(twitch['REDIRECT_URI_STREAMER'])}&"
-            "scope=channel:bot+moderator:read:chatters&"
+            "scope=channel:bot&"
             f"state={encoded_state}"
         )
 
@@ -260,7 +261,7 @@ class RaffleService:
             "response_type=code&"
             f"client_id={twitch['CLIENT_ID']}&"
             f"redirect_uri={urllib.parse.quote_plus(twitch['REDIRECT_URI_BOT'])}&"
-            "scope=chat:read+chat:edit+user:read:chat+user:write:chat+user:bot+moderator:read:chatters&"
+            "scope=chat:read+chat:edit+user:read:chat+user:write:chat+user:bot&"
             f"state={encoded_state}"
         )
 
@@ -285,7 +286,9 @@ class RaffleService:
             "response_type=code&"
             f"client_id={twitch['CLIENT_ID']}&"
             f"redirect_uri={urllib.parse.quote_plus(twitch['REDIRECT_URI_VIEWER'])}&"
-            "scope=user:read:email&"
+            # Sem escopos: o viewer só precisa provar quem é (id e nome), e /helix/users
+            # devolve isso sem permissão nenhuma. O e-mail não é usado, então não é pedido.
+            "scope=&"
             f"state={encoded_state}"
         )
         # Um dicionário por plataforma: para adicionar uma nova, basta montar a URL

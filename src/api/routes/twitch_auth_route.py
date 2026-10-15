@@ -57,6 +57,13 @@ class TwitchAuthController:
 
                 #Se não tiver ninguem cadastrado com o guild_id vai deixar ir, caso não vai barrar
                 if streamer_id_auth is None:
+                    # Um canal da Twitch só pode estar em um servidor. O banco também recusa
+                    # (platform_id é único), mas aí a pessoa veria só "Internal Server Error".
+                    if repo_auth.select_streamer_id_by_platform_id(platform_id) is not None:
+                        return HTMLResponse(
+                            "<h1>Este canal da Twitch já está vinculado a outro servidor do Discord.</h1>",
+                            status_code=409
+                        )
                     repo_auth.new_insert_token(token_json, guild_id, streamer_name, platform_id, "twitch")
                     print("[OAuth] Streamer autenticado, token gravado")
                     return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
@@ -348,12 +355,12 @@ class TwitchAuthController:
             else:
                 raise RuntimeError(f"Erro ao criar EventSub subscription: {response.status_code} - {response.text}")
 
-            # Mapeamento de status da Twitch para o banco
+            # Mapeamento de status da Twitch para o banco. Só valores que existem no enum
+            # eventsub_status (enabled, pending, disabled); o resto cai em "pending".
             status_map = {
                 "webhook_callback_verification_pending": "pending",
                 "enabled": "enabled",
-                "disabled": "disabled",
-                "expired": "expired"
+                "disabled": "disabled"
             }
             status_db = status_map.get(sub["status"], "pending")
 

@@ -105,3 +105,26 @@ def test_sorteio_com_espectador_grava_o_ganhador(conn, repo, streamer, interacao
     assert [p["message_control"] for p in chat_twitch.enviadas] == ["claim", "winner"]
     assert any("fulano_discord" in m and "Teclado" in m for m in interacao.followup.mensagens)
 
+
+
+def test_item_sem_resgate_avisa_no_discord_que_volta_a_concorrer(conn, repo, streamer, interacao, chat_twitch):
+    """Depois de 3 tentativas sem !claim, o Discord não pode receber o aviso de fim do sorteio."""
+    from src.bot.commands.raffle_commands import Raffle
+    _cadastrar_item(conn, streamer["guild_id"])
+    repo.insert_user(streamer["streamer_id"], "d1", "555", "fulano_discord", "fulano")
+    cog = Raffle(bot=None)
+
+    # Ninguém responde. Depois do aviso de item sem ganhador, o criador usa /parar
+    def parar_depois_do_aviso(params):
+        if params["message_control"] == "not-claim":
+            cog.services[streamer["guild_id"]].user_input = False
+    chat_twitch.ao_enviar = parar_depois_do_aviso
+
+    _iniciar_sorteio(cog, interacao)
+
+    assert [p["message_control"] for p in chat_twitch.enviadas] == ["claim", "resend_claim"] * 3 + ["not-claim"]
+    assert len(interacao.followup.mensagens) == 2, interacao.followup.mensagens
+    aviso_item, aviso_fim = interacao.followup.mensagens
+    assert "Teclado" in aviso_item and "!claim" in aviso_item
+    assert "Itens para sorteio vazio" not in aviso_item
+    assert "Itens para sorteio vazio" in aviso_fim

@@ -82,13 +82,13 @@ Confundir os três é a maior fonte de erro neste projeto.
 | **Bot** | `streamer_platform`, `platform_name='twitch_bot'` | `/autenticar_plataformas` → embed do Bot, **logado na conta do bot** | Envia as mensagens no chat |
 | **App Access Token** | `app_access_token` | `client_credentials`, gerado sozinho quando falta ou vence | Cria as inscrições de EventSub |
 
-O espectador (`!autenticar`, escopo `user:read:email`) **não gera token guardado**: só a
-identidade (id e nome no Discord e na Twitch) vai para `authenticated_users`.
+O espectador (`!autenticar`) **não gera token guardado**: só a identidade (id e nome no
+Discord e na Twitch) vai para `authenticated_users`.
 
 Escopos pedidos (montados em `RaffleService.streamer_auth_method` e `viewer_auth_method`):
-streamer `channel:bot moderator:read:chatters`; bot `chat:read chat:edit user:read:chat
-user:write:chat user:bot moderator:read:chatters`; viewer `user:read:email`. O
-`moderator:read:chatters` e o `user:read:email` não são usados por nada hoje (ver tarefas).
+streamer `channel:bot`; bot `chat:read chat:edit user:read:chat user:write:chat user:bot`;
+viewer **nenhum** (`scope=` vazio), porque `/helix/users` devolve id e nome sem permissão. O
+`moderator:read:chatters` (do fluxo antigo dos chatters) e o `user:read:email` foram retirados.
 
 Renovação: o App Access Token é regerado sozinho; o token do bot é renovado com o refresh
 token quando a Twitch devolve 401 no envio (`twitch_chatters_routes.send_message`), e o envio é
@@ -123,8 +123,9 @@ O laço fica em `RaffleService.raffle_loop` e é disparado por `/iniciar_sorteio
    Redis. Sem claim: espera mais 5 s, manda `resend_claim` e tenta de novo.
 5. Com claim: grava em `raffle_items.winner` o **nome do Discord** do ganhador, manda `winner`
    no chat da Twitch e anuncia no canal do Discord.
-6. Três tentativas sem claim: manda `not-claim` no chat. O item continua sem ganhador e volta a
-   concorrer nas rodadas seguintes.
+6. Três tentativas sem claim: manda `not-claim` no chat e avisa no Discord que o item volta a
+   concorrer (`on_winner_callback(None, item)`; o `notify_winner` distingue esse caso do fim do
+   sorteio, que é `on_winner_callback(None)`). O item continua sem ganhador.
 7. Sem nenhum viewer autenticado: `raffle_viewer` levanta `SemEspectadoresError`, e o
    `/iniciar_sorteio` avisa no Discord e libera o servidor.
 
@@ -173,7 +174,8 @@ Conferida em 6.000 sorteios com pesos 10/30/60: 10,2% / 29,7% / 60,1%.
 
 **Regras impostas pelo próprio banco** (restrições de unicidade, testadas):
 `streamer.guild_id` único (um streamer por servidor); `streamer_platform.platform_id` único (um
-canal da Twitch não entra num segundo servidor — o insert falha); `authenticated_users` único
+canal da Twitch não entra num segundo servidor — o callback do streamer confere antes e
+responde 409 com mensagem clara; a restrição do banco fica como garantia); `authenticated_users` único
 por `(streamer_id, discord_id)` (o mesmo viewer participa de servidores diferentes; uma nova
 autorização no mesmo servidor atualiza a linha).
 
@@ -261,7 +263,9 @@ aconteceu com correções pequenas). Já recebeu, em ordem:
 `new_method` e `kick` continuam no remoto só como histórico.
 
 Depois disso, direto no `master`: o `/iniciar_sorteio` deixou de quebrar sem viewer
-autenticado (`SemEspectadoresError`), com o teste `tests/test_sorteio.py`.
+autenticado (`SemEspectadoresError`), com o teste `tests/test_sorteio.py`; e saíram as tarefas
+A5 (aviso do Discord após 3 tentativas), A6 (escopos), A8 (canal repetido em outro servidor),
+o filtro do log de acesso e o `expired` do `status_map` do EventSub.
 
 ## Logs
 
@@ -269,6 +273,11 @@ Os `print` usam prefixos por área: `[OAuth]`, `[EventSub]`, `[Chat]`, `[Sorteio
 imprimir** token, resposta bruta da Twitch, objeto de usuário ou de evento inteiro, nem nome
 ou e-mail: já houve `print` de depuração mostrando o perfil completo do viewer, com e-mail.
 Ids de inscrição e o tipo da mensagem (`claim`, `winner`...) são suficientes para acompanhar.
+
+O **log de acesso do uvicorn** passa pelo filtro `SemQueryString` (`main_api.py`), que tira a
+query string da linha de cada requisição: ela levaria o `state` dos callbacks de OAuth (id e
+nome do Discord do viewer em base64) e o nome do ganhador no `send_message`. O filtro é
+registrado ao importar a aplicação, então vale também com `--reload`.
 
 ## Concorrência
 
@@ -299,21 +308,11 @@ texto do TCC fica como está; quem muda é o sistema):
 - **A3. Nova tentativa sempre com outro viewer.** Hoje cada tentativa sorteia entre todos e pode
   repetir a pessoa. Definir o que fazer quando houver menos viewers que tentativas.
 
-Falhas encontradas no sistema:
+Outros pontos:
 
 - **A4. Prazo anunciado no chat.** A mensagem `claim` diz "Digite !claim em até 1 minuto"
-  (`message_map` em `twitch_chatters_routes.py`), mas a espera real é ~10 s. Resolver junto com
+  (`message_map` em `twitch_chatters_routes.py`), mas a espera real é ~10 s. **A espera curta é
+  proposital, para agilizar os testes do autor** — não "corrigir" sozinho. Resolver junto com
   o A1, mostrando o prazo configurado.
-- **A5. Aviso errado no Discord.** Depois de 3 tentativas sem claim, `raffle_loop` chama
-  `on_winner_callback(None)`, e o Discord recebe "Itens para sorteio vazio ou usuário parou a
-  função" — embora o sorteio continue.
-- **A6. Escopos que sobraram.** Tirar `user:read:email` (viewer) e `moderator:read:chatters`
-  (streamer e bot), que só serviam ao fluxo antigo dos chatters.
-- **A8. Canal repetido em outro servidor.** O banco recusa (correto), mas o callback do streamer
-  só trata `ValueError` e `RequestException`: o `RuntimeError` do repositório vira "Internal
-  Server Error" para o usuário.
-- **Log de acesso do uvicorn** mostra a query string inteira: nos callbacks de OAuth, o `state`
-  (base64 com id e nome do Discord do viewer) e o `code` (uso único); no
-  `/twitch_chatters/send_message`, o nome do ganhador em `user_name`.
-- **`status_map` do EventSub** (`event_sub_signature`) mapeia `expired`, mas o enum
-  `eventsub_status` do banco só tem `enabled`, `pending` e `disabled`.
+- **Telas de erro em HTML estilizado.** Os callbacks de OAuth respondem com texto simples
+  (`<h1>...</h1>` em página branca); o plano é trocar por páginas estilizadas.
