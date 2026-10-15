@@ -122,7 +122,11 @@ class PostgresRepositoryRaffle:
             self.conn.rollback()
             raise RuntimeError(f"Erro ao buscar plataformas do streamer: {e}")
 
-    def raffle_viewer(self, streamer_id : int):
+    def select_viewers(self, streamer_id : int):
+        """
+        Todos os viewers autenticados do streamer, na ordem de cadastro. A escolha de
+        quem é sorteado fica no RaffleService, que aplica as regras de repetição.
+        """
         try:
             with self.conn.cursor() as cur:
                 # Colunas nomeadas (e não SELECT *) para o resultado não depender da ordem
@@ -133,31 +137,25 @@ class PostgresRepositoryRaffle:
                     SELECT discord_id, discord_user_name, twitch_id, twitch_user_name
                     FROM authenticated_users
                     WHERE streamer_id = %s
-                    ORDER BY RANDOM()
-                    LIMIT 1;
+                    ORDER BY id;
                     """,
                     (streamer_id,)
                 )
-                viewer = cur.fetchall()
 
-                if not viewer:
-                    return None
-
-                row = viewer[0]
-
-                result = {
-                    "discord": {
-                        "id": row[0],
-                        "user_name": row[1]
-                    },
-                    "twitch": {
-                        "id": row[2],
-                        "user_name": row[3]
+                return [
+                    {
+                        "discord": {
+                            "id": row[0],
+                            "user_name": row[1]
+                        },
+                        "twitch": {
+                            "id": row[2],
+                            "user_name": row[3]
+                        }
                     }
-                }
-
-                return result
+                    for row in cur.fetchall()
+                ]
 
         except Exception as e:
             self.conn.rollback()
-            raise RuntimeError(f"Erro ao buscar plataformas do streamer: {e}")
+            raise RuntimeError(f"Erro ao buscar os viewers autenticados: {e}")
