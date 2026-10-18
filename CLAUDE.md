@@ -117,10 +117,9 @@ O laço fica em `RaffleService.raffle_loop` e é disparado por `/iniciar_sorteio
    `make_raffle(guild_id)`, que escolhe um item **ponderado pelo peso**, entre os itens sem
    ganhador do **cadastro mais recente** (`MAX(raffle_id)`). Sem item → o laço termina.
 3. Sorteio binário: `random.choice([True, False])` decide se há prêmio na rodada.
-4. Até **3 tentativas** por item (`make_raffle_bot`). Em cada uma: sorteia um viewer de
-   `authenticated_users` (`ORDER BY RANDOM()`, pode repetir a pessoa — tarefa A3), apaga a
-   chave de claim dele no Redis, manda a mensagem `claim` no chat, espera **10 s** e consulta o
-   Redis. Sem claim: espera mais 5 s, manda `resend_claim` e tenta de novo.
+4. Até **3 tentativas** por item (`make_raffle_bot`). Em cada uma: escolhe um viewer (ver
+   abaixo), apaga a chave de claim dele no Redis, manda a mensagem `claim` no chat, espera
+   **10 s** e consulta o Redis. Sem claim: espera mais 5 s, manda `resend_claim` e tenta de novo.
 5. Com claim: grava em `raffle_items.winner` o **nome do Discord** do ganhador, manda `winner`
    no chat da Twitch e anuncia no canal do Discord.
 6. Três tentativas sem claim: manda `not-claim` no chat e avisa no Discord que o item volta a
@@ -128,6 +127,21 @@ O laço fica em `RaffleService.raffle_loop` e é disparado por `/iniciar_sorteio
    sorteio, que é `on_winner_callback(None)`). O item continua sem ganhador.
 7. Sem nenhum viewer autenticado: `raffle_viewer` levanta `SemEspectadoresError`, e o
    `/iniciar_sorteio` avisa no Discord e libera o servidor.
+
+**Escolha do viewer** (`RaffleService.raffle_viewer`): a lista vem inteira do banco
+(`select_viewers`, ordem de cadastro) e a escolha é em Python, por camadas de preferência —
+nunca proibição, para o sorteio não travar em live com pouca gente:
+
+1. alguém ainda não chamado **neste item** e que não ganhou o **último item**;
+2. senão, alguém ainda não chamado neste item (o último ganhador é liberado primeiro);
+3. senão, quem foi chamado há mais tempo neste item.
+
+Resultado: com 3+ viewers, as 3 tentativas vão para 3 pessoas diferentes; com 2, A, B, A; com
+1, A, A, A. Os chamados do item ficam na lista `chamados` do `raffle_loop`; o último ganhador
+(discord id) fica em `self.ultimo_ganhador`, **só na memória do serviço**: um novo
+`/iniciar_sorteio` começa sem bloqueio, e o bloqueio dura até haver outro ganhador (itens sem
+ganhador no meio não o liberam). Nos testes, `random.choice` é trocado por "primeira opção"
+para a escolha ser previsível.
 
 O `raffle_id` **não é a rodada do laço**: é o número de cada cadastro de itens. Cada
 `/registrar_itens` gera o próximo (`MAX(raffle_id) + 1` do streamer, em
@@ -267,6 +281,11 @@ autenticado (`SemEspectadoresError`), com o teste `tests/test_sorteio.py`; e sa�
 A5 (aviso do Discord após 3 tentativas), A6 (escopos), A8 (canal repetido em outro servidor),
 o filtro do log de acesso e o `expired` do `status_map` do EventSub.
 
+Em seguida, por PR:
+
+- `sorteio_sem_repeticao` — tarefa A3: viewer não se repete nas tentativas de um item e o
+  último ganhador fica fora do item seguinte (preferências em camadas, em memória).
+
 ## Logs
 
 Os `print` usam prefixos por área: `[OAuth]`, `[EventSub]`, `[Chat]`, `[Sorteio]`. **Nunca
@@ -295,7 +314,7 @@ discord.py.
 Abertas, em ordem de prioridade para a apresentação. **Ao concluir uma, tire daqui** e registre
 o que mudou na seção correspondente acima.
 
-As três primeiras são funcionalidades que o TCC descreve e que **vão ser implementadas** (o
+As duas primeiras são funcionalidades que o TCC descreve e que **vão ser implementadas** (o
 texto do TCC fica como está; quem muda é o sistema):
 
 - **A1. Tempos configuráveis pelo criador.** Intervalo entre rodadas (hoje `raffle_loop(10, ...)`
@@ -305,8 +324,6 @@ texto do TCC fica como está; quem muda é o sistema):
 - **A2. Pesos: padrão 50 e limite de 1 a 100.** Hoje, em `organizar_itens`: item sem `:` faz o
   cadastro inteiro falhar ("verifique a formatação"); peso não numérico vira `NULL` e o item
   nunca sai; peso 0 é aceito e nunca sai; acima de 100 é aceito.
-- **A3. Nova tentativa sempre com outro viewer.** Hoje cada tentativa sorteia entre todos e pode
-  repetir a pessoa. Definir o que fazer quando houver menos viewers que tentativas.
 
 Outros pontos:
 

@@ -29,6 +29,10 @@ class RaffleService:
         self.repo_raffle = PostgresRepositoryRaffle(self.conn)
         self.redis_conn = RedisConnectionHandle().connect()
         self.user_input = True
+        # Discord id de quem ganhou o último item: fica fora do item seguinte, se houver
+        # outro viewer. Só vive na memória deste sorteio; um novo /iniciar_sorteio começa
+        # sem ninguém bloqueado.
+        self.ultimo_ganhador = None
 
     async def raffle_loop(self, time_in_seconds: int, on_winner_callback):
         """
@@ -56,10 +60,11 @@ class RaffleService:
             if random.choice([True, False]):
                 winner_resolved = False
                 attempt = 0
+                chamados = []  # discord ids já chamados neste item, na ordem
 
                 # Tenta até 3 vezes para que alguém dê claim
                 while not winner_resolved and attempt < 3:
-                    winner_resolved, viewer, streamer_id, item_name = await self.make_raffle_bot(item, on_winner_callback)
+                    winner_resolved, viewer, streamer_id, item_name = await self.make_raffle_bot(item, on_winner_callback, chamados)
                     attempt += 1
 
                 if not winner_resolved:
@@ -73,7 +78,7 @@ class RaffleService:
             else:
                 print("[Sorteio] Não haverá sorteio nesse turno")
 
-    async def make_raffle_bot(self, item, on_winner_callback):
+    async def make_raffle_bot(self, item, on_winner_callback, chamados):
         """
         Realiza o sorteio de um item:
         - Seleciona um usuário aleatório
@@ -81,12 +86,16 @@ class RaffleService:
         - Espera 60s
         - Verifica no Redis se o usuário deu claim
         - Retorna (ganhou: bool, platform_id, winner_name, item_name)
+
+        `chamados` são os viewers já chamados neste item; quem for escolhido agora
+        entra nela.
         """
 
         redis_repository = RedisRepository(self.redis_conn)
 
         #tudo começa aqui, pego o nome do ganhador
-        viewer, streamer_id = await asyncio.to_thread(partial(self.raffle_viewer))
+        viewer, streamer_id = await asyncio.to_thread(partial(self.raffle_viewer, chamados))
+        chamados.append(viewer['discord']['id'])
         item_name = str(item[2])
 
         # A chave vive mais tempo no Redis do que a espera desta rodada, então
@@ -111,6 +120,7 @@ class RaffleService:
 
         # Usuário deu claim, atualiza item
         self.update_item(viewer['discord']['user_name'], item[0], item[1])
+        self.ultimo_ganhador = viewer['discord']['id']
 
         # Envia mensagem de confirmação de claim
         await asyncio.to_thread(partial(self.send_winner_message, viewer, streamer_id, item_name, "winner"))
@@ -119,14 +129,31 @@ class RaffleService:
         await on_winner_callback(viewer['discord']['user_name'], item)
         return True, viewer, streamer_id, item_name
 
-    def raffle_viewer(self):
+    def raffle_viewer(self, chamados=()):
+        """
+        Escolhe o viewer da tentativa. As regras são preferências, não proibições, para
+        o sorteio não travar em live com pouca gente:
+        1. alguém ainda não chamado neste item, que não ganhou o último item;
+        2. senão, alguém ainda não chamado neste item (libera o último ganhador);
+        3. senão, quem foi chamado há mais tempo neste item.
+        """
         streamer_id = self.repo_raffle.get_streamer_id(self.guild_id)
-        raffle_user = self.repo_raffle.raffle_viewer(streamer_id)
+        viewers = self.repo_raffle.select_viewers(streamer_id)
 
-        if not raffle_user:
+        if not viewers:
             raise SemEspectadoresError("Nenhum espectador autenticado neste servidor")
 
-        return raffle_user, streamer_id
+        novos = [v for v in viewers if v['discord']['id'] not in chamados]
+        novos_sem_ultimo_ganhador = [v for v in novos if v['discord']['id'] != self.ultimo_ganhador]
+
+        if novos_sem_ultimo_ganhador:
+            return random.choice(novos_sem_ultimo_ganhador), streamer_id
+        if novos:
+            return random.choice(novos), streamer_id
+
+        # Todos já foram chamados neste item: volta quem foi chamado há mais tempo
+        mais_antigo = min(viewers, key=lambda v: chamados.index(v['discord']['id']))
+        return mais_antigo, streamer_id
 
     def send_message_to_api(self, platform_name: str, platform_id: str, viewer_data: dict, item_name: str, message_control: str):
         url_base = api_config["URL_BASE"]
