@@ -276,15 +276,15 @@ aconteceu com correções pequenas). Já recebeu, em ordem:
 
 `new_method` e `kick` continuam no remoto só como histórico.
 
-Branch em andamento, ainda não mesclada no `master`:
-
-- `sorteio_sem_repeticao` — tarefa A3: viewer não se repete nas tentativas de um item e o
-  último ganhador fica fora do item seguinte (preferências em camadas, em memória).
-
 Depois disso, direto no `master`: o `/iniciar_sorteio` deixou de quebrar sem viewer
 autenticado (`SemEspectadoresError`), com o teste `tests/test_sorteio.py`; e saíram as tarefas
 A5 (aviso do Discord após 3 tentativas), A6 (escopos), A8 (canal repetido em outro servidor),
 o filtro do log de acesso e o `expired` do `status_map` do EventSub.
+
+Em seguida, por PR:
+
+- `sorteio_sem_repeticao` — tarefa A3: viewer não se repete nas tentativas de um item e o
+  último ganhador fica fora do item seguinte (preferências em camadas, em memória).
 
 ## Logs
 
