@@ -62,7 +62,11 @@ essa dependência.
 O `/registrar_itens` usa um **Modal** do discord.py (formulário na interface) em vez de
 argumentos. É o padrão a seguir para qualquer comando novo que peça vários campos. O formato
 é `item:peso, item:peso` (o `;` também é aceito como separador entre nome e peso), tratado em
-`RaffleService.organizar_itens`.
+`RaffleService.organizar_itens`: sem peso (`Teclado` ou `Teclado:`), o item vale **50**
+(`PESO_PADRAO`); peso informado precisa ser inteiro de **1 a 100** (`PESO_MINIMO`,
+`PESO_MAXIMO`). Se algum item tiver peso fora disso, ou se não houver item nenhum, o cadastro
+inteiro é recusado com `ItensInvalidosError`, cuja mensagem lista os itens errados e vai para
+o Discord — nada é gravado. O texto é conferido antes de abrir conexão com o banco.
 
 O bot **não fala com a Twitch diretamente**: para mandar mensagem no chat, chama a rota
 `POST /twitch_chatters/send_message` da API (`RaffleService.send_message_to_api`). O bot acessa
@@ -193,9 +197,11 @@ responde 409 com mensagem clara; a restrição do banco fica como garantia); `au
 por `(streamer_id, discord_id)` (o mesmo viewer participa de servidores diferentes; uma nova
 autorização no mesmo servidor atualiza a linha).
 
-**O `DEFAULT 50` de `raffle_items.weight` não tem efeito hoje:** `insert_items` sempre envia o
-peso, inclusive `NULL`, e o default só vale quando a coluna é omitida. Item com peso `NULL` (ou
-0) nunca é sorteado — ver tarefa A2.
+**O `DEFAULT 50` de `raffle_items.weight` não é usado:** `insert_items` sempre envia o peso, e
+o default do banco só vale quando a coluna é omitida. Quem aplica o 50 é o
+`organizar_itens`, então pelo bot o peso nunca chega `NULL` nem fora de 1 a 100. O banco em si
+não tem `CHECK` de faixa: um item com peso `NULL` ou 0 inserido por fora (DBeaver) nunca seria
+sorteado.
 
 A coluna `twitch_eventsub_subscription.webhook_secret` guarda a **impressão digital** do segredo,
 não o segredo; `token`/`token_data` guardam o envelope cifrado.
@@ -250,7 +256,9 @@ Cobre: criptografia dos tokens, webhook (HMAC, 403, claim, mensagem do bot), sim
 chave do claim entre webhook e sorteio, os casos do 409 do EventSub, callbacks de OAuth do
 streamer e do bot, `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
 concorrência (três envios de 1s terminam em ~1s, não em 3s) e o laço do sorteio, rodando
-o `/iniciar_sorteio` de verdade com uma interação do Discord simulada (`test_sorteio.py`).
+o `/iniciar_sorteio` de verdade com uma interação do Discord simulada (`test_sorteio.py`), e o
+cadastro de itens pelo formulário real do `/registrar_itens`, com os limites de peso e o
+sorteio do item pela `make_raffle` (`test_itens.py`).
 **Não cobre** a conexão com o Discord em si nem os demais comandos do bot.
 
 Fora da máquina do autor, o contêiner tem PostgreSQL 16 (`/usr/lib/postgresql/16/bin`) e
@@ -286,6 +294,11 @@ Em seguida, por PR:
 - `sorteio_sem_repeticao` — tarefa A3: viewer não se repete nas tentativas de um item e o
   último ganhador fica fora do item seguinte (preferências em camadas, em memória).
 
+Branch em andamento, ainda não mesclada no `master`:
+
+- `pesos_itens` — tarefa A2: peso padrão 50 e pesos só de 1 a 100 no `/registrar_itens`, com
+  os testes em `tests/test_itens.py`.
+
 ## Logs
 
 Os `print` usam prefixos por área: `[OAuth]`, `[EventSub]`, `[Chat]`, `[Sorteio]`. **Nunca
@@ -314,16 +327,13 @@ discord.py.
 Abertas, em ordem de prioridade para a apresentação. **Ao concluir uma, tire daqui** e registre
 o que mudou na seção correspondente acima.
 
-As duas primeiras são funcionalidades que o TCC descreve e que **vão ser implementadas** (o
-texto do TCC fica como está; quem muda é o sistema):
+A primeira é uma funcionalidade que o TCC descreve e que **vai ser implementada** (o texto do
+TCC fica como está; quem muda é o sistema):
 
 - **A1. Tempos configuráveis pelo criador.** Intervalo entre rodadas (hoje `raffle_loop(10, ...)`
   em `raffle_commands.py`) e prazo do `!claim` (hoje `asyncio.sleep(10)` + `sleep(5)` em
   `make_raffle_bot` e TTL de 17 s em `twitch_event_sub.py`). O número de tentativas (3) já
   bate com o TCC.
-- **A2. Pesos: padrão 50 e limite de 1 a 100.** Hoje, em `organizar_itens`: item sem `:` faz o
-  cadastro inteiro falhar ("verifique a formatação"); peso não numérico vira `NULL` e o item
-  nunca sai; peso 0 é aceito e nunca sai; acima de 100 é aceito.
 
 Outros pontos:
 

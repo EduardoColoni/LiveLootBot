@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.bot.services.raffle_service import RaffleService, SemEspectadoresError
+from src.bot.services.raffle_service import RaffleService, SemEspectadoresError, ItensInvalidosError
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.postgres.postgres_repository_raffle import PostgresRepositoryRaffle
 
@@ -14,26 +14,26 @@ class RegisterRaffleModal(discord.ui.Modal, title="Registrar itens para sorteio"
         self.services = services  # Recebe dicionário de serviços por guild
 
     itens = discord.ui.TextInput(
-        label="Adicione itens(item1:peso1, item2:peso2, etc)",
-        placeholder="ex: skin dourada:50, skin prata:30",
+        label="Itens (item:peso, peso de 1 a 100)",
+        placeholder="ex: skin dourada:80, skin prata:30, adesivo (sem peso vale 50)",
         max_length=300,
         style=discord.TextStyle.long
     )
 
     async def on_submit(self, interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
+
+        # Confere o texto antes de abrir conexão: com algum peso inválido, nada é gravado
+        try:
+            itens_processados = RaffleService.organizar_itens(self.itens.value)
+        except ItensInvalidosError as e:
+            await interaction.response.send_message(f"Nenhum item foi registrado. {e}")
+            return
+
         conn = PostgresPool.get_conn()
         try:
             repo_raffle = PostgresRepositoryRaffle(conn)
-            # Usa o serviço do sorteio se já existir, senão cria temporário
-            if guild_id in self.services:
-                service = self.services[guild_id]
-            else:
-                service = RaffleService(conn, guild_id)
-
             raffle_id = repo_raffle.make_raffle_id(guild_id)
-            itens_bruto = self.itens.value
-            itens_processados = service.organizar_itens(itens_bruto)
 
             for item, peso in itens_processados:
                 repo_raffle.insert_items(item=item, weight=peso, raffle_id=raffle_id, guild_id=guild_id)
