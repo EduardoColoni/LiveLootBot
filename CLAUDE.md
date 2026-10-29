@@ -299,9 +299,6 @@ Em seguida, por PR:
   último ganhador fica fora do item seguinte (preferências em camadas, em memória).
 - `pesos_itens` — tarefa A2: peso padrão 50 e pesos só de 1 a 100 no `/registrar_itens`, com
   os testes em `tests/test_itens.py`.
-
-Branch em andamento, ainda não mesclada no `master`:
-
 - `inscricao_chat_automatica`: a inscrição de chat é criada no fim da autenticação do bot,
   sem o curl; inscrição com endereço antigo passa a ser recriada em vez de dar erro.
 
