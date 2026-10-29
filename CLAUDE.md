@@ -79,6 +79,18 @@ não foi conectado, com o motivo; autenticar o bot de novo tenta outra vez. A ro
 `GET /twitch_callback/event_sub_signature?platform_id=<id do canal>` continua existindo para
 refazer só a inscrição à mão, e usa a mesma função.
 
+As **telas que a pessoa vê no navegador** ao fim de cada autorização (callbacks do streamer, do
+bot e do viewer) saem todas do template `src/api/templates/pagina.html`, montado por
+`pagina(request, tipo, titulo, *mensagens, detalhe=..., status_code=...)` em
+`src/api/templating.py`, com o CSS em `src/api/static/css/paginas.css` e o logo em
+`src/api/static/img/logo.png` (cores do avatar do bot: ciano neon sobre azul-marinho). O `tipo`
+é `sucesso`, `aviso` ou `erro`. Sem Bootstrap nem CDN. O Jinja escapa todo o texto; para
+destacar um trecho com HTML, use `Markup("... <strong>{}</strong>").format(valor)`, que escapa
+o valor. Os casos repetidos nos três callbacks (sem `code`, link adulterado, Twitch recusou o
+code, falha de conexão) são as funções `pagina_*` no topo de `twitch_auth_route.py`. Os
+caminhos de CSS e logo são relativos (`/static/...`) de propósito: o `url_for` montaria
+`http://` atrás do ngrok, e o navegador bloquearia numa página `https`.
+
 ## Os três tokens da Twitch
 
 Confundir os três é a maior fonte de erro neste projeto.
@@ -258,7 +270,8 @@ ser trocados com `TEST_DB_NAME` e `TEST_REDIS_DB`.
 
 Cobre: criptografia dos tokens, webhook (HMAC, 403, claim, mensagem do bot), simetria da
 chave do claim entre webhook e sorteio, os casos do 409 do EventSub, a inscrição automática
-ao autenticar o bot (inclusive com falha na Twitch), callbacks de OAuth do streamer e do bot, `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
+ao autenticar o bot (inclusive com falha na Twitch), callbacks de OAuth do streamer e do bot, as páginas de cada desfecho dos callbacks (completas,
+com CSS e logo servidos e texto de fora escapado, em `test_paginas.py`), `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
 concorrência (três envios de 1s terminam em ~1s, não em 3s) e o laço do sorteio, rodando
 o `/iniciar_sorteio` de verdade com uma interação do Discord simulada (`test_sorteio.py`), e o
 cadastro de itens pelo formulário real do `/registrar_itens`, com os limites de peso e o
@@ -302,6 +315,11 @@ Em seguida, por PR:
 - `inscricao_chat_automatica`: a inscrição de chat é criada no fim da autenticação do bot,
   sem o curl; inscrição com endereço antigo passa a ser recriada em vez de dar erro.
 
+Branch em andamento, ainda não mesclada no `master`:
+
+- `telas_estilizadas`: páginas dos callbacks de OAuth com o visual do bot (template único,
+  CSS próprio), e o callback do streamer deixa de responder `null` quando a Twitch recusa o code.
+
 ## Logs
 
 Os `print` usam prefixos por área: `[OAuth]`, `[EventSub]`, `[Chat]`, `[Sorteio]`. **Nunca
@@ -344,5 +362,3 @@ Outros pontos:
   (`message_map` em `twitch_chatters_routes.py`), mas a espera real é ~10 s. **A espera curta é
   proposital, para agilizar os testes do autor** — não "corrigir" sozinho. Resolver junto com
   o A1, mostrando o prazo configurado.
-- **Telas de erro em HTML estilizado.** Os callbacks de OAuth respondem com texto simples
-  (`<h1>...</h1>` em página branca); o plano é trocar por páginas estilizadas.

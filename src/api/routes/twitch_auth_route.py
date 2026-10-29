@@ -2,9 +2,11 @@ from fastapi import Request, APIRouter, HTTPException
 import requests
 import urllib.parse
 import json, base64
-import html
+
+from markupsafe import Markup
 
 from src.api.services.auth_service import AuthService
+from src.api.templating import pagina
 from src.core.config import twitch
 from src.core.config import api_config
 from src.core.criptografia import get_webhook_secret, impressao_digital_segredo
@@ -13,8 +15,38 @@ from src.database.postgres.postgres_repository_raffle import PostgresRepositoryR
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.redis.redis_repository import RedisRepository
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
-from starlette.responses import HTMLResponse
 from datetime import datetime
+
+
+# Páginas que os três callbacks têm em comum. `comando` é o que a pessoa roda no
+# Discord para gerar um link novo: /autenticar_plataformas ou !autenticar.
+
+def pagina_sem_code(request, comando):
+    # Quem clica em "Cancelar" na Twitch volta sem code
+    return pagina(request, "erro", "Autorização não concluída",
+                  "A Twitch não devolveu o código da autorização.",
+                  f"Se você clicou em Cancelar, é só tentar de novo pelo {comando} no Discord.",
+                  status_code=400)
+
+
+def pagina_link_invalido(request, comando):
+    return pagina(request, "erro", "Link de autorização inválido",
+                  f"O link está incompleto ou foi alterado. Gere um novo pelo {comando} no Discord.",
+                  status_code=400)
+
+
+def pagina_twitch_recusou(request, response, comando):
+    return pagina(request, "erro", "A Twitch recusou a autorização",
+                  "O código de autorização pode ter expirado ou já ter sido usado.",
+                  f"Gere um novo link pelo {comando} no Discord e tente de novo.",
+                  detalhe=f"{response.status_code}: {response.text}",
+                  status_code=response.status_code)
+
+
+def pagina_erro_de_conexao(request, erro):
+    return pagina(request, "erro", "Não foi possível falar com a Twitch",
+                  "A conexão com a Twitch falhou. Tente de novo em instantes.",
+                  detalhe=str(erro), status_code=500)
 
 
 class TwitchAuthController:
@@ -40,7 +72,7 @@ class TwitchAuthController:
             uuid_state = state_dict["csrf"]
 
             if not code or not uuid_state:
-                return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
+                return pagina_sem_code(request, "/autenticar_plataformas")
 
             data = {
                 "client_id": twitch["CLIENT_ID"],
@@ -62,20 +94,28 @@ class TwitchAuthController:
                     # Um canal da Twitch só pode estar em um servidor. O banco também recusa
                     # (platform_id é único), mas aí a pessoa veria só "Internal Server Error".
                     if repo_auth.select_streamer_id_by_platform_id(platform_id) is not None:
-                        return HTMLResponse(
-                            "<h1>Este canal da Twitch já está vinculado a outro servidor do Discord.</h1>",
-                            status_code=409
-                        )
+                        return pagina(request, "erro", "Canal já vinculado",
+                                      "Este canal da Twitch já está vinculado a outro servidor do Discord.",
+                                      "Cada canal pode estar em um servidor só.",
+                                      status_code=409)
                     repo_auth.new_insert_token(token_json, guild_id, streamer_name, platform_id, "twitch")
                     print("[OAuth] Streamer autenticado, token gravado")
-                    return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
+                    return pagina(request, "sucesso", "Autenticação concluída com sucesso!",
+                                  "Seu canal da Twitch está vinculado a este servidor do Discord.",
+                                  "Próximo passo: no /autenticar_plataformas, autentique a conta do bot, "
+                                  "logado na Twitch com a conta do bot.")
                 else:
-                    return HTMLResponse("<h1>Apenas um streamer pode ser cadastrado por servidor ou streamer já autenticado, caso precise de ajuda entre em contato com o suporte!</h1>")
+                    return pagina(request, "aviso", "Este servidor já tem um streamer",
+                                  "Apenas um streamer pode ser cadastrado por servidor, e este já tem um autenticado.",
+                                  "Caso precise de ajuda, entre em contato com o suporte.")
+
+            # Antes, aqui a rota não respondia nada e o navegador mostrava "null"
+            return pagina_twitch_recusou(request, response, "/autenticar_plataformas")
 
         except ValueError:
-            return HTMLResponse("<h1>State malformado.</h1>", status_code=400)
+            return pagina_link_invalido(request, "/autenticar_plataformas")
         except requests.exceptions.RequestException as e:
-            return HTMLResponse(f"<h1>Erro de requisição: {str(e)}</h1>", status_code=500)
+            return pagina_erro_de_conexao(request, e)
         finally:
             PostgresPool.release_conn(conn)
 
@@ -97,7 +137,7 @@ class TwitchAuthController:
             code = request.query_params.get("code")
 
             if not code or not encoded_state:
-                return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
+                return pagina_sem_code(request, "/autenticar_plataformas")
 
             state_json = base64.b64decode(urllib.parse.unquote(encoded_state)).decode()
             state_dict = json.loads(state_json)
@@ -114,7 +154,7 @@ class TwitchAuthController:
             response = requests.post(twitch["TWITCH_URL"] + "/token", data=data, timeout=10)
 
             if response.status_code != 200:
-                return HTMLResponse(f"Erro ao autenticar: {response.text}", status_code=response.status_code)
+                return pagina_twitch_recusou(request, response, "/autenticar_plataformas")
 
             token_json = response.json()
             bot_login, bot_platform_id, bot_display_name = self.get_user(token_json["access_token"])
@@ -122,20 +162,22 @@ class TwitchAuthController:
             # O resto do código busca o token do bot por esse id fixo, então
             # autorizar com a conta errada gravaria um token que ninguém acha.
             if str(bot_platform_id) != str(twitch["BOT_PLATFORM_ID"]):
-                return HTMLResponse(
-                    f"<h1>Conta errada</h1>"
-                    f"<p>Você autorizou com a conta <b>{bot_display_name}</b> (id {bot_platform_id}), "
-                    f"mas o bot configurado é o id <b>{twitch['BOT_PLATFORM_ID']}</b>.</p>"
-                    f"<p>Saia da Twitch, entre com a conta do bot e tente de novo.</p>",
+                return pagina(
+                    request, "erro", "Conta errada",
+                    Markup("Você autorizou com a conta <strong>{}</strong> (id {}), "
+                           "mas o bot configurado é o id <strong>{}</strong>.").format(
+                        bot_display_name, bot_platform_id, twitch["BOT_PLATFORM_ID"]),
+                    "Saia da Twitch, entre com a conta do bot e tente de novo. "
+                    "Uma janela anônima facilita.",
                     status_code=400
                 )
 
             streamer_id = repo_auth.select_streamer_id(guild_id)
             if streamer_id is None:
-                return HTMLResponse(
-                    "<h1>Nenhum streamer autenticado nesse servidor. Autentique o streamer primeiro.</h1>",
-                    status_code=400
-                )
+                return pagina(request, "erro", "Nenhum streamer neste servidor",
+                              "Autentique o canal do streamer primeiro (opção da Twitch no "
+                              "/autenticar_plataformas) e depois o bot.",
+                              status_code=400)
 
             repo_auth.insert_bot_token(token_json, int(streamer_id), str(bot_platform_id))
             print("[OAuth] Conta do bot autenticada, token gravado")
@@ -147,19 +189,19 @@ class TwitchAuthController:
                 self.inscrever_chat(conn, plataformas["twitch"]["platform_id"])
             except (RuntimeError, requests.exceptions.RequestException) as e:
                 print("[EventSub] Bot autenticado, mas a inscrição de chat falhou")
-                return HTMLResponse(
-                    "<h1>Bot autenticado, mas não foi possível conectar o chat.</h1>"
-                    f"<p>{html.escape(str(e))}</p>"
-                    "<p>Autentique o bot de novo para tentar outra vez.</p>",
-                    status_code=500
-                )
+                return pagina(request, "aviso", "Bot autenticado, mas não foi possível conectar o chat",
+                              "O token do bot foi gravado; só a inscrição do chat falhou.",
+                              "Autentique o bot de novo para tentar outra vez.",
+                              detalhe=str(e), status_code=500)
 
-            return HTMLResponse("<h1>Bot autenticado e chat conectado! 🤖</h1>")
+            return pagina(request, "sucesso", "Bot autenticado e chat conectado!",
+                          "O bot já pode mandar mensagens no chat e receber o !claim dos espectadores.",
+                          "Agora é só cadastrar os itens com /registrar_itens e começar com /iniciar_sorteio.")
 
         except ValueError:
-            return HTMLResponse("<h1>State malformado.</h1>", status_code=400)
+            return pagina_link_invalido(request, "/autenticar_plataformas")
         except requests.exceptions.RequestException as e:
-            return HTMLResponse(f"<h1>Erro de requisição: {str(e)}</h1>", status_code=500)
+            return pagina_erro_de_conexao(request, e)
         finally:
             PostgresPool.release_conn(conn)
 
@@ -171,7 +213,7 @@ class TwitchAuthController:
             code = request.query_params.get("code")
 
             if not code or not encoded_state:
-                return HTMLResponse("<h1>Erro: parâmetro ausente.</h1>", status_code=400)
+                return pagina_sem_code(request, "!autenticar")
 
             state_json = base64.b64decode(urllib.parse.unquote(encoded_state)).decode()
             state_dict = json.loads(state_json)
@@ -195,20 +237,26 @@ class TwitchAuthController:
                 streamer_id = repo_auth.select_streamer_id(guild_id)
 
                 if streamer_id is None:
-                    return HTMLResponse(f"Erro ao autenticar: Nenhum streamer autenticado nesse servidor", status_code=response.status_code)
+                    return pagina(request, "erro", "Nenhum streamer neste servidor",
+                                  "O criador do servidor ainda não autenticou o canal da Twitch.",
+                                  "Tente o !autenticar de novo depois que o canal for autenticado.",
+                                  status_code=response.status_code)
 
                 streamer_id = int(streamer_id)
 
                 repo_auth.insert_user(streamer_id, discord_user_id, twitch_id, discord_user_name, twitch_user_name) #Vou mudar essa daqui, antes disso vou precisar fazer uma consulta para pegar o id do streamer com o guild_id
                 print("[OAuth] Viewer autenticado")
-                return HTMLResponse("<h1>Autenticação concluída com sucesso! 🎉</h1>")
+                return pagina(request, "sucesso", "Autenticação concluída com sucesso!",
+                              "Você já está participando dos sorteios deste servidor.",
+                              "Quando for sorteado, o bot chama você no chat da live: digite !claim a tempo "
+                              "para garantir o prêmio.")
 
-            return HTMLResponse(f"Erro ao autenticar: {response.text}", status_code=response.status_code)
+            return pagina_twitch_recusou(request, response, "!autenticar")
 
         except ValueError:
-            return HTMLResponse("<h1>State malformado.</h1>", status_code=400)
+            return pagina_link_invalido(request, "!autenticar")
         except requests.exceptions.RequestException as e:
-            return HTMLResponse(f"<h1>Erro de requisição: {str(e)}</h1>", status_code=500)
+            return pagina_erro_de_conexao(request, e)
         finally:
             PostgresPool.release_conn(conn)
 
