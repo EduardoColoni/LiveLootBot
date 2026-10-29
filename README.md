@@ -36,7 +36,7 @@ Projeto de Trabalho de Conclusão de Curso.
                                      └──────────────────┘
 ```
 
-1. O criador cadastra os itens com pesos (`item:peso`) e inicia o ciclo
+1. O criador monta a lista de itens num painel, escolhendo a chance de cada um, e inicia o ciclo
 2. A cada rodada, um sorteio decide se haverá prêmio; havendo, uma função no PostgreSQL
    escolhe o item de forma ponderada pelo peso
 3. O vencedor é sorteado **entre os espectadores que vincularam Discord e Twitch**
@@ -365,11 +365,16 @@ E autoriza na Twitch. **Só quem fizer isso participa dos sorteios.**
 ### 5. Sortear
 
 ```
-/registrar_itens      → ex: skin dourada:80, skin prata:20
+/registrar_itens
 /iniciar_sorteio
 ```
 
-O peso define a chance relativa de cada item. Sem peso informado, o padrão é 50.
+O `/registrar_itens` abre um painel, visível só para você. Em **Adicionar item**, informe o
+nome e a chance: **Comum** (peso 60), **Raro** (30) ou **Lendário** (10). Quem quiser controle
+fino preenche o **peso personalizado**, de 1 a 100, que substitui a chance escolhida. O painel
+mostra a porcentagem de cada item, tem um menu para remover itens e só grava no banco ao
+clicar em **Concluir** (até 25 itens por cadastro). Cada conclusão é um cadastro novo, e o
+sorteio usa sempre o mais recente.
 
 ---
 
@@ -379,7 +384,7 @@ O peso define a chance relativa de cada item. Sem peso informado, o padrão é 5
 |---|---|---|
 | `/autenticar_plataformas` | criador | Links de autorização do criador e do bot |
 | `!autenticar` | espectador | Vincula a conta da Twitch ao Discord |
-| `/registrar_itens` | criador | Cadastra prêmios no formato `item:peso` |
+| `/registrar_itens` | criador | Abre o painel para montar a lista de prêmios |
 | `/iniciar_sorteio` | criador | Inicia o ciclo (um por servidor) |
 | `/parar` | criador | Interrompe o ciclo em execução |
 

@@ -59,14 +59,22 @@ Message Content**, habilitado no Developer Portal do Discord. Se ele for desliga
 comando para de funcionar em silêncio — sem erro e sem log. Os comandos slash não têm
 essa dependência.
 
-O `/registrar_itens` usa um **Modal** do discord.py (formulário na interface) em vez de
-argumentos. É o padrão a seguir para qualquer comando novo que peça vários campos. O formato
-é `item:peso, item:peso` (o `;` também é aceito como separador entre nome e peso), tratado em
-`RaffleService.organizar_itens`: sem peso (`Teclado` ou `Teclado:`), o item vale **50**
-(`PESO_PADRAO`); peso informado precisa ser inteiro de **1 a 100** (`PESO_MINIMO`,
-`PESO_MAXIMO`). Se algum item tiver peso fora disso, ou se não houver item nenhum, o cadastro
-inteiro é recusado com `ItensInvalidosError`, cuja mensagem lista os itens errados e vai para
-o Discord — nada é gravado. O texto é conferido antes de abrir conexão com o banco.
+O `/registrar_itens` abre um **painel** (`PainelItens`, uma `discord.ui.View` em mensagem
+`ephemeral`, visível só para quem rodou o comando) que monta a lista item a item, **em
+memória**: nada vai para o banco até o botão **Concluir**, que gera o próximo `raffle_id` e
+grava todos os itens. O painel tem o botão **Adicionar item**, um menu de seleção para
+**remover** e o **Concluir**; mostra cada item com a chance e a porcentagem de ser o primeiro
+sorteado, e aceita até `LIMITE_ITENS` (25, o máximo de opções de um menu do Discord). Expira em
+14 minutos (o token da interação vale 15). "Adicionar item" abre o formulário
+`AdicionarItemModal`, feito com os componentes novos de modal do **discord.py 2.7**
+(`ui.Label`, `ui.RadioGroup`; é por eles que o projeto exige essa versão): nome, chance
+(`RARIDADES`: Comum 60, Raro 30, Lendário 10, em `raffle_service.py`) e um **peso
+personalizado** opcional de **1 a 100** (`PESO_MINIMO`, `PESO_MAXIMO`) que substitui a chance.
+A regra fica em `RaffleService.peso_do_item`; nome em branco ou peso fora da faixa levantam
+`ItensInvalidosError`, e o item não entra (a mensagem vai só para quem preencheu). Um modal
+aceita no máximo 5 componentes, com `Label` de até 45 caracteres e descrição de até 100; o
+Discord recusa o formulário inteiro se algum limite for passado, então o
+`test_itens.py` confere o payload.
 
 O bot **não fala com a Twitch diretamente**: para mandar mensagem no chat, chama a rota
 `POST /twitch_chatters/send_message` da API (`RaffleService.send_message_to_api`). O bot acessa
@@ -214,8 +222,8 @@ por `(streamer_id, discord_id)` (o mesmo viewer participa de servidores diferent
 autorização no mesmo servidor atualiza a linha).
 
 **O `DEFAULT 50` de `raffle_items.weight` não é usado:** `insert_items` sempre envia o peso, e
-o default do banco só vale quando a coluna é omitida. Quem aplica o 50 é o
-`organizar_itens`, então pelo bot o peso nunca chega `NULL` nem fora de 1 a 100. O banco em si
+o default do banco só vale quando a coluna é omitida. Pelo bot, o peso vem sempre de
+`peso_do_item` (raridade ou peso avançado), então nunca chega `NULL` nem fora de 1 a 100. O banco em si
 não tem `CHECK` de faixa: um item com peso `NULL` ou 0 inserido por fora (DBeaver) nunca seria
 sorteado.
 
@@ -274,8 +282,9 @@ ao autenticar o bot (inclusive com falha na Twitch), callbacks de OAuth do strea
 com CSS e logo servidos e texto de fora escapado, em `test_paginas.py`), `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
 concorrência (três envios de 1s terminam em ~1s, não em 3s) e o laço do sorteio, rodando
 o `/iniciar_sorteio` de verdade com uma interação do Discord simulada (`test_sorteio.py`), e o
-cadastro de itens pelo formulário real do `/registrar_itens`, com os limites de peso e o
-sorteio do item pela `make_raffle` (`test_itens.py`).
+cadastro de itens pelo painel e pelo formulário reais do `/registrar_itens` (adicionar,
+remover, concluir, chances, peso avançado e seus limites, limites do payload do modal) e o
+sorteio dos itens pela `make_raffle` na proporção das chances (`test_itens.py`).
 **Não cobre** a conexão com o Discord em si nem os demais comandos do bot.
 
 Fora da máquina do autor, o contêiner tem PostgreSQL 16 (`/usr/lib/postgresql/16/bin`) e
@@ -316,6 +325,12 @@ Em seguida, por PR:
   sem o curl; inscrição com endereço antigo passa a ser recriada em vez de dar erro.
 - `telas_estilizadas`: páginas dos callbacks de OAuth com o visual do bot (template único,
   CSS próprio), e o callback do streamer deixa de responder `null` quando a Twitch recusa o code.
+
+Branch em andamento, ainda não mesclada no `master`:
+
+- `cadastro_itens_painel`: o `/registrar_itens` vira um painel com botões (adicionar com
+  chance Comum/Raro/Lendário ou peso avançado de 1 a 100, remover, concluir), no lugar do
+  texto `item:peso`; discord.py atualizado de 2.5.2 para 2.7.1.
 
 **Branch parada de propósito: `rotas_manuais_locais`.** Tem a correção do primeiro item de
 "Limitações conhecidas" (rotas de manutenção só em `localhost`, com testes), mas o autor

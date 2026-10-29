@@ -12,7 +12,7 @@ click==8.1.8
 colorama==0.4.6
 cryptography==46.0.3
 discord==2.3.2
-discord.py==2.5.2
+discord.py==2.7.1
 fastapi==0.115.12
 frozenlist==1.5.0
 h11==0.14.0

@@ -1,6 +1,5 @@
 import random
 import asyncio
-import re
 from functools import partial
 
 from src.core.config import twitch
@@ -23,14 +22,23 @@ class SemEspectadoresError(Exception):
 
 
 class ItensInvalidosError(Exception):
-    """O texto do /registrar_itens tem peso fora da regra, ou nenhum item."""
+    """O item do painel do /registrar_itens está sem nome ou com peso fora da regra."""
 
 
-# Pesos dos itens do sorteio: sem peso, o item vale PESO_PADRAO; informado, precisa estar
-# entre PESO_MINIMO e PESO_MAXIMO
-PESO_PADRAO = 50
+# Chance de cada item no painel do /registrar_itens: a raridade escolhida vira o peso
+# gravado no banco. 60/30/10 é a proporção já conferida na make_raffle.
+RARIDADES = {
+    "comum": ("Comum", 60),
+    "raro": ("Raro", 30),
+    "lendario": ("Lendário", 10),
+}
+
+# Peso avançado, digitado pelo streamer no lugar da raridade
 PESO_MINIMO = 1
 PESO_MAXIMO = 100
+
+# O menu de remoção do painel mostra no máximo 25 opções (limite do Discord)
+LIMITE_ITENS = 25
 
 
 class RaffleService:
@@ -244,53 +252,29 @@ class RaffleService:
             print(f"Falha ao atualizar o item: {item_id} erro: {e}")
 
     @staticmethod
-    def organizar_itens(itens):
+    def peso_do_item(raridade: str, peso_avancado: str = "") -> int:
         """
-        Lê o texto do /registrar_itens ("item:peso, item:peso") e devolve [(nome, peso)].
+        Peso gravado para um item do painel do /registrar_itens.
 
-        Sem peso ("Teclado" ou "Teclado:"), o item vale PESO_PADRAO. Peso informado precisa
-        ser inteiro de PESO_MINIMO a PESO_MAXIMO. Se algum não for, nada é cadastrado:
-        ItensInvalidosError diz quais itens estão errados.
+        O peso avançado, se preenchido, substitui a raridade e precisa ser inteiro de
+        PESO_MINIMO a PESO_MAXIMO; senão, vale o peso da raridade (RARIDADES).
         """
-        itens_processados = []
-        invalidos = []
-
-        for par in itens.split(","):
-            par = par.strip()
-            if not par:
-                continue
-
-            # ":" ou ";" separa o nome do peso
-            partes = re.split("[:;]", par, maxsplit=1)
-            nome = partes[0].strip()
-            peso = partes[1].strip() if len(partes) > 1 else ""
-            if not nome:
-                continue
-
-            if not peso:
-                itens_processados.append((nome, PESO_PADRAO))
-                continue
-
+        texto = (peso_avancado or "").strip()
+        if texto:
             try:
-                peso_valor = int(peso)
+                peso = int(texto)
             except ValueError:
-                peso_valor = None
+                peso = None
+            if peso is None or not PESO_MINIMO <= peso <= PESO_MAXIMO:
+                raise ItensInvalidosError(
+                    f"O peso avançado precisa ser um número inteiro de {PESO_MINIMO} a {PESO_MAXIMO} "
+                    f"(recebido: {texto}). Deixe em branco para usar a chance escolhida."
+                )
+            return peso
 
-            if peso_valor is None or not PESO_MINIMO <= peso_valor <= PESO_MAXIMO:
-                invalidos.append(f"{nome} ({peso})")
-                continue
-
-            itens_processados.append((nome, peso_valor))
-
-        if invalidos:
-            raise ItensInvalidosError(
-                f"Peso inválido em: {', '.join(invalidos)}. O peso precisa ser um número inteiro "
-                f"de {PESO_MINIMO} a {PESO_MAXIMO}; sem peso, o item vale {PESO_PADRAO}."
-            )
-        if not itens_processados:
-            raise ItensInvalidosError("Nenhum item foi informado.")
-
-        return itens_processados
+        if raridade not in RARIDADES:
+            raise ItensInvalidosError("Escolha a chance do item.")
+        return RARIDADES[raridade][1]
 
     def streamer_auth_method(self, guild_id : str):
         csrf = str(uuid.uuid4())

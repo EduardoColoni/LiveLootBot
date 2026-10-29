@@ -2,51 +2,164 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.bot.services.raffle_service import RaffleService, SemEspectadoresError, ItensInvalidosError
+from discord.utils import escape_markdown
+
+from src.bot.services.raffle_service import (
+    RaffleService, SemEspectadoresError, ItensInvalidosError,
+    RARIDADES, PESO_MINIMO, PESO_MAXIMO, LIMITE_ITENS,
+)
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.postgres.postgres_repository_raffle import PostgresRepositoryRaffle
 
 
-# Modal para registrar itens do sorteio
-class RegisterRaffleModal(discord.ui.Modal, title="Registrar itens para sorteio"):
-    def __init__(self, services):
-        super().__init__(title="Registrar itens")
-        self.services = services  # Recebe dicionário de serviços por guild
+# Cadastro de itens: o /registrar_itens abre um painel, visível só para quem rodou o
+# comando, que monta a lista item a item. Nada vai para o banco até clicar em Concluir.
 
-    itens = discord.ui.TextInput(
-        label="Itens (item:peso, peso de 1 a 100)",
-        placeholder="ex: skin dourada:80, skin prata:30, adesivo (sem peso vale 50)",
-        max_length=300,
-        style=discord.TextStyle.long
+DESCRICAO_RARIDADE = {
+    "comum": "Sai com mais frequência",
+    "raro": "Sai de vez em quando",
+    "lendario": "Sai raramente",
+}
+
+
+class AdicionarItemModal(discord.ui.Modal, title="Adicionar item"):
+    nome = discord.ui.Label(
+        text="Nome do item",
+        component=discord.ui.TextInput(placeholder="ex: Skin dourada", max_length=100),
+    )
+    chance = discord.ui.Label(
+        text="Chance de sair",
+        description="Itens comuns saem mais vezes que os lendários.",
+        component=discord.ui.RadioGroup(options=[
+            discord.RadioGroupOption(label=rotulo, value=valor, description=DESCRICAO_RARIDADE[valor],
+                                     default=(valor == "comum"))
+            for valor, (rotulo, _) in RARIDADES.items()
+        ]),
+    )
+    peso = discord.ui.Label(
+        text="Peso personalizado (avançado)",
+        description=f"Opcional: número de {PESO_MINIMO} a {PESO_MAXIMO}. Se preenchido, substitui a chance acima.",
+        component=discord.ui.TextInput(placeholder="ex: 75", required=False, max_length=10),
     )
 
-    async def on_submit(self, interaction: discord.Interaction):
-        guild_id = str(interaction.guild.id)
+    def __init__(self, painel):
+        super().__init__()
+        self.painel = painel
 
-        # Confere o texto antes de abrir conexão: com algum peso inválido, nada é gravado
+    async def on_submit(self, interaction: discord.Interaction):
+        nome = (self.nome.component.value or "").strip()
+        peso_avancado = (self.peso.component.value or "").strip()
         try:
-            itens_processados = RaffleService.organizar_itens(self.itens.value)
+            if not nome:
+                raise ItensInvalidosError("O nome do item não pode ficar em branco.")
+            if len(self.painel.itens) >= LIMITE_ITENS:
+                raise ItensInvalidosError(f"O cadastro já tem o máximo de {LIMITE_ITENS} itens.")
+            peso = RaffleService.peso_do_item(self.chance.component.value, peso_avancado)
         except ItensInvalidosError as e:
-            await interaction.response.send_message(f"Nenhum item foi registrado. {e}")
+            await interaction.response.send_message(f"Item não adicionado. {e}", ephemeral=True)
+            return
+
+        # Com peso avançado, o painel mostra o número em vez da raridade
+        raridade = None if peso_avancado else self.chance.component.value
+        self.painel.itens.append({"nome": nome, "peso": peso, "raridade": raridade})
+        await interaction.response.edit_message(embed=self.painel.embed(), view=self.painel.atualizar())
+
+
+class PainelItens(discord.ui.View):
+    def __init__(self, guild_id: str):
+        # O token da interação vale 15 minutos; o painel expira um pouco antes
+        super().__init__(timeout=14 * 60)
+        self.guild_id = guild_id
+        self.itens = []  # [{"nome", "peso", "raridade" (None quando o peso é avançado)}]
+        self.interacao = None  # a do /registrar_itens, para avisar quando o painel expirar
+        self.atualizar()
+
+    def _chance(self, item):
+        return RARIDADES[item["raridade"]][0] if item["raridade"] else f"peso {item['peso']}"
+
+    def embed(self) -> discord.Embed:
+        total = sum(item["peso"] for item in self.itens)
+        linhas = [
+            f"• **{escape_markdown(item['nome'])}** · {self._chance(item)} · {round(item['peso'] * 100 / total)}%"
+            for item in self.itens
+        ]
+        embed = discord.Embed(
+            title="🎁 Itens do sorteio",
+            description="\n".join(linhas) or "Nenhum item ainda. Clique em **Adicionar item** para começar.",
+            color=0x02FFFD,
+        )
+        embed.set_footer(text=f"{len(self.itens)}/{LIMITE_ITENS} itens · A porcentagem é a chance de cada item "
+                              f"ser o primeiro sorteado. Nada é salvo até você clicar em Concluir.")
+        return embed
+
+    def atualizar(self):
+        """Ajusta botões e menu à lista atual. Devolve o próprio painel, para o edit_message."""
+        self.adicionar.disabled = len(self.itens) >= LIMITE_ITENS
+        self.concluir.disabled = not self.itens
+
+        # O Discord não aceita menu sem opções: sem itens, o menu de remoção sai do painel
+        self.remove_item(self.remover)
+        if self.itens:
+            self.remover.options = [
+                discord.SelectOption(label=item["nome"], value=str(posicao), description=self._chance(item))
+                for posicao, item in enumerate(self.itens)
+            ]
+            self.add_item(self.remover)
+        return self
+
+    @discord.ui.select(placeholder="🗑️ Remover um item", row=0, options=[discord.SelectOption(label="-")])
+    async def remover(self, interaction: discord.Interaction, select: discord.ui.Select):
+        posicao = int(select.values[0])
+        if 0 <= posicao < len(self.itens):
+            del self.itens[posicao]
+        await interaction.response.edit_message(embed=self.embed(), view=self.atualizar())
+
+    @discord.ui.button(label="Adicionar item", emoji="➕", style=discord.ButtonStyle.primary, row=1)
+    async def adicionar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AdicionarItemModal(self))
+
+    @discord.ui.button(label="Concluir", emoji="✅", style=discord.ButtonStyle.success, row=1)
+    async def concluir(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.itens:
+            await interaction.response.send_message("Adicione pelo menos um item.", ephemeral=True)
             return
 
         conn = PostgresPool.get_conn()
         try:
             repo_raffle = PostgresRepositoryRaffle(conn)
-            raffle_id = repo_raffle.make_raffle_id(guild_id)
+            # Cada conclusão é um cadastro novo; o sorteio usa sempre o mais recente
+            raffle_id = repo_raffle.make_raffle_id(self.guild_id)
+            if raffle_id is None:
+                await interaction.response.send_message(
+                    "Nenhum streamer autenticado neste servidor. Rode /autenticar_plataformas antes.",
+                    ephemeral=True)
+                return
 
-            for item, peso in itens_processados:
-                repo_raffle.insert_items(item=item, weight=peso, raffle_id=raffle_id, guild_id=guild_id)
-
-            await interaction.response.send_message("Itens registrados com sucesso!")
-
+            for item in self.itens:
+                repo_raffle.insert_items(item=item["nome"], weight=item["peso"], raffle_id=raffle_id,
+                                         guild_id=self.guild_id)
         except Exception as e:
-            await interaction.response.send_message(
-                f"Erro ao inserir os itens, verifique a formatação!\nErro: {e}"
-            )
             conn.rollback()
+            await interaction.response.send_message(f"Erro ao gravar os itens: {e}", ephemeral=True)
+            return
         finally:
             PostgresPool.release_conn(conn)
+
+        self.stop()
+        embed = self.embed()
+        embed.title = "✅ Itens registrados"
+        embed.set_footer(text=f"{len(self.itens)} itens prontos. Use /iniciar_sorteio para começar.")
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    async def on_timeout(self):
+        if self.interacao is None:
+            return
+        try:
+            await self.interacao.edit_original_response(
+                content="Este painel expirou e nada foi salvo. Rode /registrar_itens de novo.", view=None)
+        except discord.HTTPException:
+            pass
+
 
 # Cog com os comandos do bot
 class Raffle(commands.Cog):
@@ -54,9 +167,11 @@ class Raffle(commands.Cog):
         self.bot = bot
         self.services = {}  # guarda RaffleService por guild_id
 
-    @app_commands.command(name="registrar_itens", description="Tela para registrar itens para o sorteio")
+    @app_commands.command(name="registrar_itens", description="Abre o painel para montar a lista de itens do sorteio")
     async def registrar_itens(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(RegisterRaffleModal(self.services))
+        painel = PainelItens(str(interaction.guild.id))
+        painel.interacao = interaction
+        await interaction.response.send_message(embed=painel.embed(), view=painel, ephemeral=True)
 
     @app_commands.command(name="iniciar_sorteio", description="Inicia o loop de sorteio até acabar os itens do sorteio cadastrado ou usuário usar o comando !parar")
     async def iniciar_sorteio(self, interaction: discord.Interaction):
