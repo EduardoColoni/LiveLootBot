@@ -72,9 +72,12 @@ O bot **não fala com a Twitch diretamente**: para mandar mensagem no chat, cham
 `POST /twitch_chatters/send_message` da API (`RaffleService.send_message_to_api`). O bot acessa
 o PostgreSQL e o Redis diretamente.
 
-A **inscrição de eventos do chat** (EventSub) não tem comando no Discord: é criada chamando
-`GET /twitch_callback/event_sub_signature?platform_id=<id do canal>` à mão (curl), depois das
-autenticações do streamer e do bot. Ver o "Primeiro uso" do `README.md`.
+A **inscrição de eventos do chat** (EventSub) é criada sozinha no fim da autenticação do bot
+(`twitch_callback_bot` chama `TwitchAuthController.inscrever_chat` com o canal do streamer
+daquele servidor). Se ela falhar, o token do bot continua gravado e a página diz que o chat
+não foi conectado, com o motivo; autenticar o bot de novo tenta outra vez. A rota
+`GET /twitch_callback/event_sub_signature?platform_id=<id do canal>` continua existindo para
+refazer só a inscrição à mão, e usa a mesma função.
 
 ## Os três tokens da Twitch
 
@@ -175,8 +178,9 @@ Todo `!claim` é gravado, mas o sorteio só consulta a chave do viewer sorteado.
 O segredo do HMAC vem de `TWITCH_WEBHOOK_SECRET` no `src/.env`. A Twitch assina com o segredo
 dado na **criação** da inscrição e não deixa trocá-lo depois; por isso a coluna
 `webhook_secret` guarda a impressão digital do segredo (`sha256:...`) e, no 409, a inscrição
-só é reaproveitada se a impressão digital bater, senão é apagada e recriada. Assinatura
-inválida devolve 403.
+só é reaproveitada se a impressão digital bater **e** o endereço dela for o `URL_BASE` atual;
+senão (segredo trocado, banco apagado, domínio do ngrok trocado) é apagada e recriada.
+Assinatura inválida devolve 403.
 
 ## Banco de dados
 
@@ -253,8 +257,8 @@ criptografia e segredo de webhook próprios. As credenciais vêm do `src/.env`; 
 ser trocados com `TEST_DB_NAME` e `TEST_REDIS_DB`.
 
 Cobre: criptografia dos tokens, webhook (HMAC, 403, claim, mensagem do bot), simetria da
-chave do claim entre webhook e sorteio, os casos do 409 do EventSub, callbacks de OAuth do
-streamer e do bot, `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
+chave do claim entre webhook e sorteio, os casos do 409 do EventSub, a inscrição automática
+ao autenticar o bot (inclusive com falha na Twitch), callbacks de OAuth do streamer e do bot, `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
 concorrência (três envios de 1s terminam em ~1s, não em 3s) e o laço do sorteio, rodando
 o `/iniciar_sorteio` de verdade com uma interação do Discord simulada (`test_sorteio.py`), e o
 cadastro de itens pelo formulário real do `/registrar_itens`, com os limites de peso e o
@@ -295,6 +299,11 @@ Em seguida, por PR:
   último ganhador fica fora do item seguinte (preferências em camadas, em memória).
 - `pesos_itens` — tarefa A2: peso padrão 50 e pesos só de 1 a 100 no `/registrar_itens`, com
   os testes em `tests/test_itens.py`.
+
+Branch em andamento, ainda não mesclada no `master`:
+
+- `inscricao_chat_automatica`: a inscrição de chat é criada no fim da autenticação do bot,
+  sem o curl; inscrição com endereço antigo passa a ser recriada em vez de dar erro.
 
 ## Logs
 

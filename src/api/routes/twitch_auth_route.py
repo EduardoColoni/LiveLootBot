@@ -2,12 +2,14 @@ from fastapi import Request, APIRouter, HTTPException
 import requests
 import urllib.parse
 import json, base64
+import html
 
 from src.api.services.auth_service import AuthService
 from src.core.config import twitch
 from src.core.config import api_config
 from src.core.criptografia import get_webhook_secret, impressao_digital_segredo
 from src.database.postgres.postgres_repository_auth import PostgresRepositoryAuth
+from src.database.postgres.postgres_repository_raffle import PostgresRepositoryRaffle
 from src.database.postgres.connection.postgres_connection import PostgresPool
 from src.database.redis.redis_repository import RedisRepository
 from src.database.redis.connection.redis_connection import RedisConnectionHandle
@@ -84,6 +86,9 @@ class TwitchAuthController:
         Diferente do callback do streamer, aqui não se cria nem se atualiza nada
         na tabela streamer: o bot não é um streamer, é a conta que fala no chat.
         O token vai para streamer_platform com platform_name 'twitch_bot'.
+
+        Em seguida cria a inscrição de chat (EventSub) do canal do streamer: é o
+        último passo da configuração, e a essa altura os dois consentimentos já existem.
         """
         conn = PostgresPool.get_conn()
         encoded_state = request.query_params.get("state")
@@ -134,7 +139,22 @@ class TwitchAuthController:
 
             repo_auth.insert_bot_token(token_json, int(streamer_id), str(bot_platform_id))
             print("[OAuth] Conta do bot autenticada, token gravado")
-            return HTMLResponse("<h1>Bot autenticado com sucesso! 🤖</h1>")
+
+            # Se a inscrição falhar, o token do bot continua gravado: autenticar
+            # o bot de novo tenta outra vez (e reaproveita o que já estiver certo).
+            try:
+                plataformas = PostgresRepositoryRaffle(conn).select_streamer_platforms(int(streamer_id))
+                self.inscrever_chat(conn, plataformas["twitch"]["platform_id"])
+            except (RuntimeError, requests.exceptions.RequestException) as e:
+                print("[EventSub] Bot autenticado, mas a inscrição de chat falhou")
+                return HTMLResponse(
+                    "<h1>Bot autenticado, mas não foi possível conectar o chat.</h1>"
+                    f"<p>{html.escape(str(e))}</p>"
+                    "<p>Autentique o bot de novo para tentar outra vez.</p>",
+                    status_code=500
+                )
+
+            return HTMLResponse("<h1>Bot autenticado e chat conectado! 🤖</h1>")
 
         except ValueError:
             return HTMLResponse("<h1>State malformado.</h1>", status_code=400)
@@ -265,124 +285,129 @@ class TwitchAuthController:
 
     @staticmethod
     def event_sub_signature(platform_id : str):
+        """
+        Cria a inscrição de chat à mão. O caminho normal é automático, no fim do
+        twitch_callback_bot; esta rota fica para refazer só a inscrição.
+        """
         conn = PostgresPool.get_conn()
         try:
-            repo_auth = PostgresRepositoryAuth(conn)
-            url_base = api_config["URL_BASE"]
-
-            # Pega um App Access Token válido. Se estiver faltando ou vencido,
-            # o próprio serviço gera outro e grava no banco.
-            app_access_token = AuthService(conn).get_app_access_token()
-
-            # IDs do broadcaster e do bot
-            #platform_id = "102089057"
-
-            user_id_bot = twitch["BOT_PLATFORM_ID"]
-
-            # O segredo vem do .env. No banco só fica a impressão digital dele,
-            # que diz com qual segredo cada inscrição foi criada.
-            webhook_secret = get_webhook_secret()
-            fingerprint = impressao_digital_segredo(webhook_secret)
-
-            headers = {
-                "Authorization": f"Bearer {app_access_token['access_token']}",
-                "Client-Id": twitch["CLIENT_ID"],
-                "Content-Type": "application/json"
-            }
-
-            body = {
-                "type": "channel.chat.message",
-                "version": "1",
-                "condition": {
-                    "broadcaster_user_id": platform_id,
-                    "user_id": user_id_bot
-                },
-                "transport": {
-                    "method": "webhook",
-                    "callback": f"{url_base}/twitch/eventsub",
-                    "secret": webhook_secret
-                }
-            }
-
-            def criar_inscricao():
-                return requests.post(
-                    "https://api.twitch.tv/helix/eventsub/subscriptions",
-                    headers=headers,
-                    json=body
-                )
-
-            response = criar_inscricao()
-
-            if response.status_code == 202:
-                sub = response.json()["data"][0]
-
-            elif response.status_code == 409:
-                # Já existe na Twitch: quem estava desatualizado era o banco.
-                sub = TwitchAuthController.find_eventsub_subscription(headers, platform_id, user_id_bot)
-                if sub is None:
-                    raise RuntimeError(
-                        f"A Twitch diz que a inscrição já existe, mas ela não apareceu na listagem: {response.text}"
-                    )
-
-                # Se o callback dela for outro (uma URL antiga de ngrok, por
-                # exemplo), reaproveitar deixaria o banco dizendo 'enabled'
-                # enquanto os eventos vão para outro lugar.
-                callback_atual = sub.get("transport", {}).get("callback")
-                if callback_atual != f"{url_base}/twitch/eventsub":
-                    raise RuntimeError(
-                        f"A inscrição {sub['id']} já existe mas aponta para {callback_atual}, "
-                        f"e não para {url_base}/twitch/eventsub. Apague ela na Twitch e rode de novo."
-                    )
-
-                # A Twitch assina cada evento com o segredo dado na criação da
-                # inscrição, e não deixa trocá-lo depois. Só dá para reaproveitar
-                # se o banco confirmar que ela foi criada com o segredo atual;
-                # senão (segredo trocado, ou banco apagado) é apagar e criar de novo.
-                if repo_auth.select_webhook_fingerprint(sub["id"]) == fingerprint:
-                    print(f"[EventSub] Inscrição já existia com o segredo atual, reaproveitada: {sub['id']}")
-                else:
-                    print(f"[EventSub] Inscrição {sub['id']} foi criada com outro segredo (ou o banco não a conhece). Recriando...")
-                    TwitchAuthController.delete_eventsub_subscription(headers, sub["id"])
-                    repo_auth.delete_eventsub_subscription(sub["id"])
-
-                    response = criar_inscricao()
-                    if response.status_code != 202:
-                        raise RuntimeError(
-                            f"Erro ao recriar a EventSub subscription: {response.status_code} - {response.text}"
-                        )
-                    sub = response.json()["data"][0]
-
-            else:
-                raise RuntimeError(f"Erro ao criar EventSub subscription: {response.status_code} - {response.text}")
-
-            # Mapeamento de status da Twitch para o banco. Só valores que existem no enum
-            # eventsub_status (enabled, pending, disabled); o resto cai em "pending".
-            status_map = {
-                "webhook_callback_verification_pending": "pending",
-                "enabled": "enabled",
-                "disabled": "disabled"
-            }
-            status_db = status_map.get(sub["status"], "pending")
-
-            # Expira_at: nem sempre existe, usar created_at se necessário
-            expires_at = sub.get("expires_at", sub["created_at"])
-            streamer_id = repo_auth.select_streamer_id_by_platform_id(platform_id)
-            # Insere no banco
-            repo_auth.insert_eventsub_subscription(
-                streamer_id=int(streamer_id),
-                platform_id=str(platform_id),
-                subscription_id=sub["id"],
-                status=status_db,
-                type_=sub["type"],
-                transport_callback=sub["transport"]["callback"],
-                webhook_secret=fingerprint,
-                expires_at=str(datetime.fromisoformat(expires_at.replace("Z", "+00:00")))
-            )
-
-            print(f"[EventSub] Inscrição de chat registrada: {sub['id']}")
-
+            TwitchAuthController.inscrever_chat(conn, platform_id)
         finally:
             PostgresPool.release_conn(conn)
+
+    @staticmethod
+    def inscrever_chat(conn, platform_id: str):
+        """
+        Cria (ou reaproveita) a inscrição channel.chat.message do canal `platform_id`
+        com a conta do bot e grava no banco. Levanta RuntimeError se a Twitch recusar.
+        """
+        repo_auth = PostgresRepositoryAuth(conn)
+        url_base = api_config["URL_BASE"]
+
+        # Pega um App Access Token válido. Se estiver faltando ou vencido,
+        # o próprio serviço gera outro e grava no banco.
+        app_access_token = AuthService(conn).get_app_access_token()
+
+        # IDs do broadcaster e do bot
+        #platform_id = "102089057"
+
+        user_id_bot = twitch["BOT_PLATFORM_ID"]
+
+        # O segredo vem do .env. No banco só fica a impressão digital dele,
+        # que diz com qual segredo cada inscrição foi criada.
+        webhook_secret = get_webhook_secret()
+        fingerprint = impressao_digital_segredo(webhook_secret)
+
+        headers = {
+            "Authorization": f"Bearer {app_access_token['access_token']}",
+            "Client-Id": twitch["CLIENT_ID"],
+            "Content-Type": "application/json"
+        }
+
+        body = {
+            "type": "channel.chat.message",
+            "version": "1",
+            "condition": {
+                "broadcaster_user_id": platform_id,
+                "user_id": user_id_bot
+            },
+            "transport": {
+                "method": "webhook",
+                "callback": f"{url_base}/twitch/eventsub",
+                "secret": webhook_secret
+            }
+        }
+
+        def criar_inscricao():
+            return requests.post(
+                "https://api.twitch.tv/helix/eventsub/subscriptions",
+                headers=headers,
+                json=body,
+                timeout=10
+            )
+
+        response = criar_inscricao()
+
+        if response.status_code == 202:
+            sub = response.json()["data"][0]
+
+        elif response.status_code == 409:
+            # Já existe na Twitch: quem estava desatualizado era o banco.
+            sub = TwitchAuthController.find_eventsub_subscription(headers, platform_id, user_id_bot)
+            if sub is None:
+                raise RuntimeError(
+                    f"A Twitch diz que a inscrição já existe, mas ela não apareceu na listagem: {response.text}"
+                )
+
+            # A Twitch não deixa trocar o endereço nem o segredo de uma inscrição.
+            # Só dá para reaproveitar se ela manda os eventos para esta API e o
+            # banco confirma que foi criada com o segredo atual. Senão (domínio do
+            # ngrok trocado, segredo trocado ou banco apagado) é apagar e criar de novo.
+            mesmo_endereco = sub.get("transport", {}).get("callback") == f"{url_base}/twitch/eventsub"
+            if mesmo_endereco and repo_auth.select_webhook_fingerprint(sub["id"]) == fingerprint:
+                print(f"[EventSub] Inscrição já existia com o segredo atual, reaproveitada: {sub['id']}")
+            else:
+                motivo = "foi criada com outro segredo (ou o banco não a conhece)" if mesmo_endereco \
+                    else "aponta para outro endereço"
+                print(f"[EventSub] Inscrição {sub['id']} {motivo}. Recriando...")
+                TwitchAuthController.delete_eventsub_subscription(headers, sub["id"])
+                repo_auth.delete_eventsub_subscription(sub["id"])
+
+                response = criar_inscricao()
+                if response.status_code != 202:
+                    raise RuntimeError(
+                        f"Erro ao recriar a EventSub subscription: {response.status_code} - {response.text}"
+                    )
+                sub = response.json()["data"][0]
+
+        else:
+            raise RuntimeError(f"Erro ao criar EventSub subscription: {response.status_code} - {response.text}")
+
+        # Mapeamento de status da Twitch para o banco. Só valores que existem no enum
+        # eventsub_status (enabled, pending, disabled); o resto cai em "pending".
+        status_map = {
+            "webhook_callback_verification_pending": "pending",
+            "enabled": "enabled",
+            "disabled": "disabled"
+        }
+        status_db = status_map.get(sub["status"], "pending")
+
+        # Expira_at: nem sempre existe, usar created_at se necessário
+        expires_at = sub.get("expires_at", sub["created_at"])
+        streamer_id = repo_auth.select_streamer_id_by_platform_id(platform_id)
+        # Insere no banco
+        repo_auth.insert_eventsub_subscription(
+            streamer_id=int(streamer_id),
+            platform_id=str(platform_id),
+            subscription_id=sub["id"],
+            status=status_db,
+            type_=sub["type"],
+            transport_callback=sub["transport"]["callback"],
+            webhook_secret=fingerprint,
+            expires_at=str(datetime.fromisoformat(expires_at.replace("Z", "+00:00")))
+        )
+
+        print(f"[EventSub] Inscrição de chat registrada: {sub['id']}")
 
 
 def setup_auth_routes():
