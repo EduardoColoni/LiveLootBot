@@ -314,9 +314,6 @@ Em seguida, por PR:
   os testes em `tests/test_itens.py`.
 - `inscricao_chat_automatica`: a inscrição de chat é criada no fim da autenticação do bot,
   sem o curl; inscrição com endereço antigo passa a ser recriada em vez de dar erro.
-
-Branch em andamento, ainda não mesclada no `master`:
-
 - `telas_estilizadas`: páginas dos callbacks de OAuth com o visual do bot (template único,
   CSS próprio), e o callback do streamer deixa de responder `null` quando a Twitch recusa o code.
 
