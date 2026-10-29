@@ -293,9 +293,6 @@ Em seguida, por PR:
 
 - `sorteio_sem_repeticao` — tarefa A3: viewer não se repete nas tentativas de um item e o
   último ganhador fica fora do item seguinte (preferências em camadas, em memória).
-
-Branch em andamento, ainda não mesclada no `master`:
-
 - `pesos_itens` — tarefa A2: peso padrão 50 e pesos só de 1 a 100 no `/registrar_itens`, com
   os testes em `tests/test_itens.py`.
 
