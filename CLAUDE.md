@@ -79,6 +79,14 @@ não foi conectado, com o motivo; autenticar o bot de novo tenta outra vez. A ro
 `GET /twitch_callback/event_sub_signature?platform_id=<id do canal>` continua existindo para
 refazer só a inscrição à mão, e usa a mesma função.
 
+**Rotas de manutenção só em `localhost`.** A API fica aberta na internet pelo ngrok, então
+`/twitch_callback/twitch_app_access_token` e `/twitch_callback/event_sub_signature` passam
+pela dependência `somente_local` (`twitch_auth_route.py`): atendem só cliente `127.0.0.1`/`::1`
+**sem** `X-Forwarded-For`, e respondem 403 ao resto. O ngrok do compose chega pelo IP da rede
+do Docker; um ngrok fora do Docker chega por `127.0.0.1`, mas com `X-Forwarded-For`. A rota do
+App Access Token não devolve o token, só `expires_in`. Os callbacks de OAuth e o
+`/twitch/eventsub` continuam públicos (a Twitch e o navegador da pessoa precisam alcançá-los).
+
 As **telas que a pessoa vê no navegador** ao fim de cada autorização (callbacks do streamer, do
 bot e do viewer) saem todas do template `src/api/templates/pagina.html`, montado por
 `pagina(request, tipo, titulo, *mensagens, detalhe=..., status_code=...)` em
@@ -271,7 +279,8 @@ ser trocados com `TEST_DB_NAME` e `TEST_REDIS_DB`.
 Cobre: criptografia dos tokens, webhook (HMAC, 403, claim, mensagem do bot), simetria da
 chave do claim entre webhook e sorteio, os casos do 409 do EventSub, a inscrição automática
 ao autenticar o bot (inclusive com falha na Twitch), callbacks de OAuth do streamer e do bot, as páginas de cada desfecho dos callbacks (completas,
-com CSS e logo servidos e texto de fora escapado, em `test_paginas.py`), `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
+com CSS e logo servidos e texto de fora escapado, em `test_paginas.py`), as rotas de
+manutenção recusadas pelo ngrok e aceitas em localhost (`test_rotas_manuais.py`), `redirect_uri` dos links de autorização igual ao da troca do code, renovação do token no envio de mensagem, pool sob queda de conexões e
 concorrência (três envios de 1s terminam em ~1s, não em 3s) e o laço do sorteio, rodando
 o `/iniciar_sorteio` de verdade com uma interação do Discord simulada (`test_sorteio.py`), e o
 cadastro de itens pelo formulário real do `/registrar_itens`, com os limites de peso e o
@@ -316,6 +325,11 @@ Em seguida, por PR:
   sem o curl; inscrição com endereço antigo passa a ser recriada em vez de dar erro.
 - `telas_estilizadas`: páginas dos callbacks de OAuth com o visual do bot (template único,
   CSS próprio), e o callback do streamer deixa de responder `null` quando a Twitch recusa o code.
+
+Branch em andamento, ainda não mesclada no `master`:
+
+- `rotas_manuais_locais`: as rotas de manutenção (App Access Token e inscrição manual) só
+  atendem `localhost`, e a do App Access Token deixa de devolver o token.
 
 ## Logs
 

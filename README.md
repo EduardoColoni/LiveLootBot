@@ -339,7 +339,9 @@ segredo nem o endereço de uma inscrição, então a antiga é apagada e criada 
 Se a página disser **"Bot autenticado, mas não foi possível conectar o chat"**, o token do bot
 foi gravado e só a inscrição falhou; o motivo aparece logo abaixo. Resolvido o problema,
 autentique o bot de novo. Para refazer só a inscrição, sem passar pelo navegador, a rota
-manual continua disponível (a resposta `null` significa sucesso):
+manual continua disponível, rodando o comando **na máquina da API** (a resposta `null`
+significa sucesso). Pelo endereço do ngrok ela responde 403 de propósito: a API fica aberta
+na internet, e essa rota é só de manutenção.
 
 ```bash
 curl "http://localhost:8000/twitch_callback/event_sub_signature?platform_id=SEU_ID_NA_TWITCH"
@@ -416,8 +418,8 @@ LiveLootBot/
 | `GET /twitch_callback/streamer` | Callback do OAuth do criador |
 | `GET /twitch_callback/viewer` | Callback do OAuth do espectador |
 | `GET /twitch_callback/bot` | Callback do OAuth da conta do bot |
-| `GET /twitch_callback/twitch_app_access_token` | Gera um App Access Token manualmente |
-| `GET /twitch_callback/event_sub_signature` | Refaz à mão a inscrição de eventos do chat (a autenticação do bot já a cria) |
+| `GET /twitch_callback/twitch_app_access_token` | Gera um App Access Token manualmente (só em `localhost`; não devolve o token) |
+| `GET /twitch_callback/event_sub_signature` | Refaz à mão a inscrição de eventos do chat (só em `localhost`; a autenticação do bot já a cria) |
 | `POST /twitch/eventsub` | Recebe as mensagens do chat da Twitch |
 | `POST /twitch_chatters/send_message` | Envia mensagem no chat |
 | `GET /overlays/winner/{nome}` | Overlay do vencedor para o OBS |

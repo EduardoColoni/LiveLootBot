@@ -1,4 +1,4 @@
-from fastapi import Request, APIRouter, HTTPException
+from fastapi import Request, APIRouter, HTTPException, Depends
 import requests
 import urllib.parse
 import json, base64
@@ -49,6 +49,20 @@ def pagina_erro_de_conexao(request, erro):
                   detalhe=str(erro), status_code=500)
 
 
+def somente_local(request: Request):
+    """
+    Libera a rota só para quem está na máquina da API (curl em localhost).
+
+    A API fica aberta na internet pelo ngrok. O ngrok do compose chega pela rede do
+    Docker (outro IP); um ngrok rodando direto na máquina chega por 127.0.0.1, mas
+    manda X-Forwarded-For com o endereço de quem está na internet. Os dois são recusados.
+    """
+    local = request.client is not None and request.client.host in ("127.0.0.1", "::1")
+    if not local or "x-forwarded-for" in request.headers:
+        raise HTTPException(status_code=403,
+                            detail="Rota de manutenção: disponível só na máquina da API (http://localhost:8000).")
+
+
 class TwitchAuthController:
     def __init__(self):
         self.redis_conn = RedisConnectionHandle().connect()
@@ -56,8 +70,11 @@ class TwitchAuthController:
         self.router.add_api_route("/twitch_callback/streamer", self.twitch_callback_streamer, methods=["GET"])
         self.router.add_api_route("/twitch_callback/viewer", self.twitch_callback_viewer, methods=["GET"])
         self.router.add_api_route("/twitch_callback/bot", self.twitch_callback_bot, methods=["GET"])
-        self.router.add_api_route("/twitch_callback/twitch_app_access_token", self.twitch_app_access_token, methods=["GET"])
-        self.router.add_api_route("/twitch_callback/event_sub_signature", self.event_sub_signature, methods=["GET"])
+        # Rotas de manutenção: não fazem parte de nenhum fluxo e só atendem localhost
+        self.router.add_api_route("/twitch_callback/twitch_app_access_token", self.twitch_app_access_token,
+                                  methods=["GET"], dependencies=[Depends(somente_local)])
+        self.router.add_api_route("/twitch_callback/event_sub_signature", self.event_sub_signature,
+                                  methods=["GET"], dependencies=[Depends(somente_local)])
 
     def twitch_callback_streamer(self, request: Request):
         conn = PostgresPool.get_conn()
@@ -282,11 +299,12 @@ class TwitchAuthController:
 
         Continua existindo para uso manual, mas não é mais obrigatório chamar
         antes do event_sub_signature: ele já gera sozinho quando precisa.
+        O token fica só no banco (cifrado); a resposta não o devolve.
         """
         conn = PostgresPool.get_conn()
         try:
             token_json = AuthService(conn).generate_app_access_token()
-            return {"status": "ok", "access_token": token_json["access_token"]}
+            return {"status": "ok", "expires_in": token_json.get("expires_in")}
 
         except RuntimeError as e:
             raise HTTPException(status_code=500, detail=str(e))
