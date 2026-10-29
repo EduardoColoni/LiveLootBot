@@ -205,8 +205,8 @@ URL_BASE=https://SEU-DOMINIO.ngrok-free.app
 > `REDIRECT_URI_STREAMER` e `REDIRECT_URI_VIEWER` são **obrigatórias**: os links de
 > autorização que o bot manda no Discord usam esses endereços, e nenhum endereço fica fixo no
 > código. Ao mudar de domínio (outra máquina, um servidor), troque `URL_BASE` e os três
-> `REDIRECT_URI_*`, cadastre os novos endereços no app da Twitch e refaça a etapa 3 do
-> *Primeiro uso*.
+> `REDIRECT_URI_*`, cadastre os novos endereços no app da Twitch e autentique o bot de novo
+> (etapa 2 do *Primeiro uso*): a inscrição do chat é recriada no endereço novo.
 
 Os dois valores secretos são gerados por você, não vêm de nenhum painel:
 
@@ -323,20 +323,27 @@ SELECT platform_name, platform_id, left(token::text, 30) FROM streamer_platform;
 Devem aparecer `twitch` e `twitch_bot`, com o token no formato `{"ct": "gAAAAA...`. Se aparecer
 um `access_token` legível, a aplicação não está rodando a versão com criptografia.
 
-### 3. Criar a inscrição de eventos do chat
+### 3. Conferir a inscrição de eventos do chat
+
+Não há nada para rodar: a inscrição que traz as mensagens do chat (e o `!claim`) para a API é
+criada sozinha no fim da etapa 2. A página da autorização do bot termina com
+**"Bot autenticado e chat conectado!"**. No log da API aparece
+`[EventSub] Inscrição de chat registrada` e, logo em seguida, um `POST /twitch/eventsub ... 200`:
+é a Twitch enviando o desafio de verificação, assinado com o `TWITCH_WEBHOOK_SECRET`.
+
+Se o segredo foi trocado, o banco foi recriado ou o domínio do ngrok mudou, antes disso aparece
+`[EventSub] Inscrição ... foi criada com outro segredo ... Recriando...` (ou
+`... aponta para outro endereço. Recriando...`). É o esperado: a Twitch não deixa trocar o
+segredo nem o endereço de uma inscrição, então a antiga é apagada e criada de novo.
+
+Se a página disser **"Bot autenticado, mas não foi possível conectar o chat"**, o token do bot
+foi gravado e só a inscrição falhou; o motivo aparece logo abaixo. Resolvido o problema,
+autentique o bot de novo. Para refazer só a inscrição, sem passar pelo navegador, a rota
+manual continua disponível (a resposta `null` significa sucesso):
 
 ```bash
 curl "http://localhost:8000/twitch_callback/event_sub_signature?platform_id=SEU_ID_NA_TWITCH"
 ```
-
-A resposta `null` significa **sucesso** (o endpoint não retorna conteúdo). No log da API
-aparece `[EventSub] Inscrição de chat registrada` e, logo em seguida, um
-`POST /twitch/eventsub ... 200`: é a Twitch enviando o desafio de verificação, assinado com o
-`TWITCH_WEBHOOK_SECRET`.
-
-Se o segredo foi trocado ou o banco foi recriado, antes disso aparece
-`[EventSub] Inscrição ... foi criada com outro segredo ... Recriando...`. É o esperado: a Twitch
-não deixa trocar o segredo de uma inscrição, então a antiga é apagada e criada de novo.
 
 O `status` gravado no banco é o do momento da criação (`pending`); a confirmação é o
 `POST /twitch/eventsub ... 200` no log.
@@ -409,7 +416,7 @@ LiveLootBot/
 | `GET /twitch_callback/viewer` | Callback do OAuth do espectador |
 | `GET /twitch_callback/bot` | Callback do OAuth da conta do bot |
 | `GET /twitch_callback/twitch_app_access_token` | Gera um App Access Token manualmente |
-| `GET /twitch_callback/event_sub_signature` | Cria a inscrição de eventos do chat |
+| `GET /twitch_callback/event_sub_signature` | Refaz à mão a inscrição de eventos do chat (a autenticação do bot já a cria) |
 | `POST /twitch/eventsub` | Recebe as mensagens do chat da Twitch |
 | `POST /twitch_chatters/send_message` | Envia mensagem no chat |
 | `GET /overlays/winner/{nome}` | Overlay do vencedor para o OBS |
@@ -516,12 +523,13 @@ Falta a etapa 2 do primeiro uso. Rode `/autenticar_plataformas` e clique em
 **`subscription already exists` (HTTP 409) ao criar a inscrição**
 A inscrição existe na Twitch mas não no banco — acontece ao recriar o banco. O sistema trata
 isso sozinho: se o banco confirma que ela foi criada com o `TWITCH_WEBHOOK_SECRET` atual, ela
-é reaproveitada; senão, é apagada e criada de novo com o segredo atual. Se a mensagem disser
-que o *callback* é diferente, apague a inscrição antiga pela API da Twitch e rode de novo.
+é reaproveitada; senão, é apagada e criada de novo com o segredo atual. O mesmo vale para uma
+inscrição que aponta para outro endereço (domínio do ngrok trocado): ela é recriada no
+`URL_BASE` atual.
 
 **`!claim` não é reconhecido e o log da API mostra `Assinatura inválida`**
-A inscrição foi criada com um segredo diferente do `TWITCH_WEBHOOK_SECRET` atual. Rode de
-novo a etapa 3 do *Primeiro uso*: ela recria a inscrição com o segredo certo.
+A inscrição foi criada com um segredo diferente do `TWITCH_WEBHOOK_SECRET` atual. Autentique
+de novo a conta do bot (etapa 2 do *Primeiro uso*): a inscrição é recriada com o segredo certo.
 
 **`... está gravado sem criptografia. Refaça a autenticação`**
 O banco tem um token de antes da criptografia. Refaça a autenticação indicada (ou recomece
