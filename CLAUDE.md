@@ -317,6 +317,13 @@ Em seguida, por PR:
 - `telas_estilizadas`: páginas dos callbacks de OAuth com o visual do bot (template único,
   CSS próprio), e o callback do streamer deixa de responder `null` quando a Twitch recusa o code.
 
+**Branch parada de propósito: `rotas_manuais_locais`.** Tem a correção do primeiro item de
+"Limitações conhecidas" (rotas de manutenção só em `localhost`, com testes), mas o autor
+decidiu deixá-la **intocada** até a entrega do TCC: **não mesclar, não usar como base de
+branch nova, não atualizar**. Serve só de referência de como resolver; trabalho novo sai
+sempre do `master`. O `CLAUDE.md` de dentro dela descreve a correção como se existisse, o que
+não vale para o `master`.
+
 ## Logs
 
 Os `print` usam prefixos por área: `[OAuth]`, `[EventSub]`, `[Chat]`, `[Sorteio]`. **Nunca
@@ -340,7 +347,43 @@ eventos e a API inteira pararia enquanto a Twitch responde.
 No bot, o envio de mensagens vai por `asyncio.to_thread`, para não travar o heartbeat do
 discord.py.
 
+## Limitações conhecidas (fora do escopo da entrega)
+
+Problemas já analisados que o autor decidiu **não resolver agora**: o foco é a entrega do
+TCC. **Não corrigir sem o autor pedir**, nem "de passagem" em outra tarefa. Podem entrar na
+monografia como limitações e trabalhos futuros.
+
+- **Rotas de manutenção abertas pelo ngrok.** `/twitch_callback/twitch_app_access_token` e
+  `/twitch_callback/event_sub_signature` atendem qualquer um na internet. A primeira gera um
+  App Access Token novo e **o devolve na resposta**; a segunda cria, apaga e recria a
+  inscrição do chat. O token só dá acesso às inscrições de EventSub do app e a dados
+  públicos, não às contas do streamer nem do bot. Correção pronta na branch parada
+  `rotas_manuais_locais` (ver "Branches"): só `127.0.0.1`/`::1` sem `X-Forwarded-For`, e a
+  rota do token sem devolver o token.
+- **`POST /twitch_chatters/send_message` aberta pelo ngrok.** Qualquer um pode fazer o bot
+  mandar no chat as mensagens do sorteio (`claim`, `winner`...) com o nome e o item que
+  quiser. Não dá para fechar como as rotas acima porque o bot do Discord a chama pelo
+  `URL_BASE` (ngrok), em `RaffleService.send_message_to_api`. Correção sugerida: o bot chamar a
+  API por `localhost` e a rota só atender local, ou uma chave compartilhada no `.env`.
+- **`state` dos links de autorização sem assinatura.** O `state` leva o `guild_id` e, no
+  viewer, o id e o nome do Discord, em base64; o campo `csrf` nunca é conferido. Com um
+  `state` montado à mão, uma pessoa cadastra a mesma conta da Twitch várias vezes com ids do
+  Discord inventados (a unicidade é por `(streamer_id, discord_id)`), e cada linha conta como
+  um participante: mais chances no sorteio. Correção sugerida: assinar o `state` com HMAC e um
+  segredo do `.env` ao gerar o link, e conferir no callback.
+- **Token do bot com vários servidores.** A conta do bot é uma só e a linha do token também
+  (`streamer_platform.platform_id` é único). Ela fica ligada ao streamer do **primeiro**
+  servidor que autenticou o bot; autenticar o bot em outro servidor só troca o token
+  (`insert_bot_token`, `ON CONFLICT (platform_id)`). O envio funciona em todos os canais,
+  porque o token é buscado pelo `BOT_PLATFORM_ID` e cada streamer dá o próprio consentimento
+  `channel:bot`. Mas apagar o streamer do primeiro servidor leva o token junto (`ON DELETE
+  CASCADE`), e o bot para de falar em **todos** os servidores até ser autenticado de novo.
+
 ## Lista de tarefas da aplicação
+
+**Foco atual: refinar o sistema para a entrega do TCC.** Mudanças que não servem a isso
+(segurança, refatorações, melhorias "de passagem") ficam para depois; ver "Limitações
+conhecidas".
 
 Abertas, em ordem de prioridade para a apresentação. **Ao concluir uma, tire daqui** e registre
 o que mudou na seção correspondente acima.
