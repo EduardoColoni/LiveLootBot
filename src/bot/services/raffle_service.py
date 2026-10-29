@@ -22,6 +22,17 @@ class SemEspectadoresError(Exception):
     """Ninguém fez !autenticar no servidor: não há a quem sortear o item."""
 
 
+class ItensInvalidosError(Exception):
+    """O texto do /registrar_itens tem peso fora da regra, ou nenhum item."""
+
+
+# Pesos dos itens do sorteio: sem peso, o item vale PESO_PADRAO; informado, precisa estar
+# entre PESO_MINIMO e PESO_MAXIMO
+PESO_PADRAO = 50
+PESO_MINIMO = 1
+PESO_MAXIMO = 100
+
+
 class RaffleService:
     def __init__(self, conn=None, guild_id=None):
         self.guild_id = guild_id
@@ -233,32 +244,53 @@ class RaffleService:
             print(f"Falha ao atualizar o item: {item_id} erro: {e}")
 
     @staticmethod
-    def organizar_itens(itens = None):
-        try:
-            pares = itens.split(",")
-            itens_processados = []
+    def organizar_itens(itens):
+        """
+        Lê o texto do /registrar_itens ("item:peso, item:peso") e devolve [(nome, peso)].
 
-            for par in pares:
-                par = par.strip()
-                if not par:
-                    continue
+        Sem peso ("Teclado" ou "Teclado:"), o item vale PESO_PADRAO. Peso informado precisa
+        ser inteiro de PESO_MINIMO a PESO_MAXIMO. Se algum não for, nada é cadastrado:
+        ItensInvalidosError diz quais itens estão errados.
+        """
+        itens_processados = []
+        invalidos = []
 
-                # Se tiver delimitador, pega nome e peso
-                if ":" in par or ";" in par:
-                    nome, peso = re.split("[:;]", par, maxsplit=1)
-                    nome = nome.strip()
-                    peso = peso.strip()
-                    # Se peso não for numérico, ignora ou define None
-                    peso_valor = int(peso) if peso.isdigit() else None
-                    if not nome:
-                        continue
-                    itens_processados.append((nome, peso_valor))
-                else:
-                    return
+        for par in itens.split(","):
+            par = par.strip()
+            if not par:
+                continue
 
-            return itens_processados
-        except:
-            return("Item não foram dividos por virgula")
+            # ":" ou ";" separa o nome do peso
+            partes = re.split("[:;]", par, maxsplit=1)
+            nome = partes[0].strip()
+            peso = partes[1].strip() if len(partes) > 1 else ""
+            if not nome:
+                continue
+
+            if not peso:
+                itens_processados.append((nome, PESO_PADRAO))
+                continue
+
+            try:
+                peso_valor = int(peso)
+            except ValueError:
+                peso_valor = None
+
+            if peso_valor is None or not PESO_MINIMO <= peso_valor <= PESO_MAXIMO:
+                invalidos.append(f"{nome} ({peso})")
+                continue
+
+            itens_processados.append((nome, peso_valor))
+
+        if invalidos:
+            raise ItensInvalidosError(
+                f"Peso inválido em: {', '.join(invalidos)}. O peso precisa ser um número inteiro "
+                f"de {PESO_MINIMO} a {PESO_MAXIMO}; sem peso, o item vale {PESO_PADRAO}."
+            )
+        if not itens_processados:
+            raise ItensInvalidosError("Nenhum item foi informado.")
+
+        return itens_processados
 
     def streamer_auth_method(self, guild_id : str):
         csrf = str(uuid.uuid4())
