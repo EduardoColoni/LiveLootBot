@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ titulo }} · LiveLootBot</title>
+    <link rel="icon" type="image/png" href="/static/img/logo.png">
+    <link rel="stylesheet" href="/static/css/paginas.css">
+</head>
+<body>
+    <main class="cartao {{ tipo }}">
+        <img class="logo" src="/static/img/logo.png" alt="LiveLootBot" width="112" height="112">
+
+        <span class="selo">
+            {% if tipo == "sucesso" %}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+            {% elif tipo == "aviso" %}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v6M12 17v.01"/></svg>
+            {% else %}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg>
+            {% endif %}
+            {{ rotulo }}
+        </span>
+
+        <h1>{{ titulo }}</h1>
+
+        {% for paragrafo in mensagens %}
+        <p>{{ paragrafo }}</p>
+        {% endfor %}
+
+        {% if detalhe %}
+        <div class="detalhe">
+            <span>Detalhe técnico</span>
+            <code>{{ detalhe }}</code>
+        </div>
+        {% endif %}
+
+        <footer>Você já pode fechar esta aba e voltar ao Discord.</footer>
+    </main>
+</body>
+</html>

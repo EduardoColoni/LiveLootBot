@@ -394,7 +394,8 @@ LiveLootBot/
 │   │   ├── main_api.py         # Aplicação e registro das rotas
 │   │   ├── routes/             # Callbacks de OAuth, envio de mensagens, overlay
 │   │   ├── services/           # Webhook do EventSub e serviço de autenticação
-│   │   └── templates/          # Overlay para OBS
+│   │   ├── static/             # CSS e logo das páginas de autorização
+│   │   └── templates/          # Página de autorização (pagina.html) e overlay para OBS
 │   ├── bot/                    # Bot do Discord
 │   │   ├── bot.py              # Ponto de entrada
 │   │   ├── commands/           # Comandos de barra e de prefixo
